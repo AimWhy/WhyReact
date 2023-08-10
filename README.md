@@ -1,25 +1,32 @@
 ## 初衷
 
 23年3月底离职了，本想回到老家找一份远程工作的机会、事与愿违~.
-闲之无聊、灵光炸现， 想自己实现一个不一样的react,
+
+闲之无聊、灵光炸现， 想自己实现一个不一样的react.
+
 95% 以上的场景都是在做 web开发， 不想在引入一个Fiber层
 状态驻留用 generator， 后序递归遍历也简单的很
 
-# 只有函数组件奥、 内置dom元素（svg 家族暂未处理）
+希望大家一起学习、也能给您提供思路。
+
+## 只有函数组件奥、 内置dom元素（svg 家族暂未处理）
 
 组件就是一个函数， 包含固定参数
-`
-function App(props, oldProps, { instance, useEffect, useState, useSyncExternalStore}) {
 
-let [state, setState] = useState('');
-if(你的逻辑) {
-return <div>布拉布拉</div>
+```js
+function App(
+	props,
+	oldProps,
+	{ instance, useEffect, useState, useSyncExternalStore }
+) {
+	let [state, setState] = useState('');
+
+	if (true) {
+		return <div>布拉布拉</div>;
+	}
+	return <ABC />;
 }
-
-    return <ABC />
-
-}
-`
+```
 
 ## 已实现的功能
 
