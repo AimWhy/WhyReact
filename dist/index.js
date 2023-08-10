@@ -280,28 +280,7 @@
 
 	const isTextElement = (element) => element.type === 'text';
 
-	const buildIn = {
-		comment(props) {
-			return document.createComment(props.content);
-		},
-		text(props, oldProps, { instance, useEffect }) {
-			const element = instance || document.createTextNode(props.content);
-			// console.log(`text 重用`, instance);
-			if (!oldProps || props.content !== oldProps.content) {
-				element.data = props.content;
-			}
-
-			useEffect(
-				() => () => {
-					element.remove(element);
-				},
-				[]
-			);
-
-			return element;
-		}
-	};
-	const genBuildInFun = function ($tag) {
+	function genBuildInFun($tag) {
 		const func = function (
 			props = {},
 			oldProps = {},
@@ -309,7 +288,9 @@
 		) {
 			const [invokers] = useState({});
 
-			// console.log(`${$tag} 重用`, instance);
+			{
+				console.log(`${$tag} 重用`, instance);
+			}
 			const element = instance || document.createElement($tag);
 			element.innerHTML = '';
 			const deleteMap = { ...oldProps };
@@ -377,6 +358,30 @@
 
 		Object.defineProperty(func, 'name', { value: $tag });
 		return func;
+	}
+
+	const buildIn = {
+		comment(props) {
+			return document.createComment(props.content);
+		},
+		text(props, oldProps, { instance, useEffect }) {
+			const element = instance || document.createTextNode(props.content);
+			{
+				console.log(`text 重用`, instance);
+			}
+			if (!oldProps || props.content !== oldProps.content) {
+				element.data = props.content;
+			}
+
+			useEffect(
+				() => () => {
+					element.remove(element);
+				},
+				[]
+			);
+
+			return element;
+		}
 	};
 
 	HTML_TAGS.forEach((tag) => {
@@ -600,6 +605,22 @@
 
 	const componentCreator = firstNextWithProps(withStateFun);
 
+	function generator(pushRenderElement, element) {
+		if (!GeneratorPool[element._key]) {
+			GeneratorPool[element._key] = componentCreator(
+				typeof element.type === 'string'
+					? buildInMap[element.type]
+					: element.type,
+				pushRenderElement
+			);
+			GeneratorPool[element._key].element = element;
+		}
+		if (GeneratorPool[element._key].StatusLane & (NoneLane | UnMountedLane)) {
+			GeneratorPool[element._key].StatusLane = MountedLane;
+		}
+		return GeneratorPool[element._key];
+	}
+
 	function jsx(type, props = {}, key = null) {
 		return {
 			key,
@@ -612,32 +633,16 @@
 			index: 0,
 
 			stateNode: null,
+
 			get _key() {
 				const typeName =
 					typeof this.type === 'string' ? this.type : this.type.name;
 				const pKey = this.return ? this.return._key : '';
 				const cKey = this.key || `${typeName}_${this.index}`;
 				return `${pKey}:${cKey}`;
-			},
-			get generator() {
-				if (!GeneratorPool[this._key]) {
-					GeneratorPool[this._key] = componentCreator(
-						typeof this.type === 'string' ? buildInMap[this.type] : this.type,
-						pushRenderElement
-					);
-					GeneratorPool[this._key].element = this;
-				}
-				if (GeneratorPool[this._key].StatusLane & (NoneLane | UnMountedLane)) {
-					GeneratorPool[this._key].StatusLane = MountedLane;
-				}
-				return GeneratorPool[this._key];
 			}
 		};
 	}
-
-	const Fragment = () => {
-		return document.createDocumentFragment();
-	};
 
 	const toValidElement = (element) => {
 		if (element && element.type) {
@@ -651,6 +656,18 @@
 		}
 		return jsx('text', { content: '' });
 	};
+
+	const Fragment = () => {
+		return document.createDocumentFragment();
+	};
+
+	const renderList = new Set();
+	const pushRenderElement = (generatorObj) => {
+		renderList.add(generatorObj);
+		queueMicrotaskOnce(forceRender);
+	};
+
+	const gen = (element) => generator(pushRenderElement, element);
 
 	function beginWork(element) {
 		if (!element.stateNode) {
@@ -669,9 +686,9 @@
 	function finishedWork(element) {
 		console.log('finishedWork', element);
 		if (isTextElement(element)) {
-			element.stateNode = element.generator.next(element.props).value;
+			element.stateNode = gen(element).next(element.props).value;
 		} else if (isHTMLTag(element.type) || element.type === Fragment) {
-			const temp = element.generator.next(element.props).value;
+			const temp = gen(element).next(element.props).value;
 			temp.appendChild(element.stateNode);
 			element.stateNode = temp;
 		} else {
@@ -722,7 +739,7 @@
 
 			yield element;
 		} else {
-			const tempInnerRoot = element.generator.next(element.props).value;
+			const tempInnerRoot = gen(element).next(element.props).value;
 			if (tempInnerRoot != null) {
 				const innerRootElement = toValidElement(tempInnerRoot);
 				element.child = innerRootElement;
@@ -743,8 +760,8 @@
 		for (const item of postOrder(element)) {
 			finishedWork(item);
 			deleteKeySet.delete(item._key);
-			if (item.generator.flushEffects) {
-				queueMacrotask(item.generator.flushEffects);
+			if (gen(item).flushEffects) {
+				queueMacrotask(gen(item).flushEffects);
 			}
 		}
 
@@ -784,12 +801,6 @@
 		}
 	};
 
-	const renderList = new Set();
-	const pushRenderElement = (generator) => {
-		renderList.add(generator);
-		queueMicrotaskOnce(forceRender);
-	};
-
 	const getCommonRenderElement = () => {
 		const elements = [...renderList.values()].map((gen) => gen.element);
 		renderList.clear();
@@ -809,7 +820,7 @@
 		}
 	};
 
-	const forceRender = () => {
+	function forceRender() {
 		const cursorFix = genCursorFix();
 
 		const element = getCommonRenderElement();
@@ -841,7 +852,7 @@
 
 		startComment.remove();
 		cursorFix();
-	};
+	}
 
 	const createRoot = (container) => {
 		const key = container.id || (Date.now() + Math.random()).toString(36);

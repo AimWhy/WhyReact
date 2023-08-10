@@ -1,5 +1,5 @@
 import { shallowEqual } from './util';
-import { isHostElementFn } from './buildIn';
+import { isHostElementFn, buildInMap } from './buildIn';
 
 export const NoneLane = 0b000001;
 export const MountedLane = 0b000010;
@@ -211,3 +211,19 @@ function* withStateFun(func, pushRenderElement) {
 }
 
 export const componentCreator = firstNextWithProps(withStateFun);
+
+export function generator(pushRenderElement, element) {
+	if (!GeneratorPool[element._key]) {
+		GeneratorPool[element._key] = componentCreator(
+			typeof element.type === 'string'
+				? buildInMap[element.type]
+				: element.type,
+			pushRenderElement
+		);
+		GeneratorPool[element._key].element = element;
+	}
+	if (GeneratorPool[element._key].StatusLane & (NoneLane | UnMountedLane)) {
+		GeneratorPool[element._key].StatusLane = MountedLane;
+	}
+	return GeneratorPool[element._key];
+}

@@ -1,65 +1,16 @@
 import { isHTMLTag, genCursorFix, getCommentRang } from './util';
 import { queueMacrotask, queueMicrotaskOnce } from './taskQueue';
 import { buildInMap, isTextElement } from './buildIn';
-import {
-	NoneLane,
-	MountedLane,
-	UnMountedLane,
-	GeneratorPool,
-	componentCreator
-} from './generator';
+import { UnMountedLane, GeneratorPool, generator } from './generator';
+import { toValidElement, Fragment } from './jsx-runtime';
 
-export function jsx(type, props = {}, key = null) {
-	return {
-		key,
-		type,
-		props,
-
-		child: null,
-		sibling: null,
-		return: null,
-		index: 0,
-
-		stateNode: null,
-		get _key() {
-			const typeName =
-				typeof this.type === 'string' ? this.type : this.type.name;
-			const pKey = this.return ? this.return._key : '';
-			const cKey = this.key || `${typeName}_${this.index}`;
-			return `${pKey}:${cKey}`;
-		},
-		get generator() {
-			if (!GeneratorPool[this._key]) {
-				GeneratorPool[this._key] = componentCreator(
-					typeof this.type === 'string' ? buildInMap[this.type] : this.type,
-					pushRenderElement
-				);
-				GeneratorPool[this._key].element = this;
-			}
-			if (GeneratorPool[this._key].StatusLane & (NoneLane | UnMountedLane)) {
-				GeneratorPool[this._key].StatusLane = MountedLane;
-			}
-			return GeneratorPool[this._key];
-		}
-	};
-}
-
-export const Fragment = () => {
-	return document.createDocumentFragment();
+const renderList = new Set();
+const pushRenderElement = (generatorObj) => {
+	renderList.add(generatorObj);
+	queueMicrotaskOnce(forceRender);
 };
 
-export const toValidElement = (element) => {
-	if (element && element.type) {
-		return element;
-	}
-	if (typeof element === 'string' || typeof element === 'number') {
-		return jsx('text', { content: element });
-	}
-	if (Array.isArray(element)) {
-		return jsx(Fragment, { children: element.flat(5) });
-	}
-	return jsx('text', { content: '' });
-};
+export const gen = (element) => generator(pushRenderElement, element);
 
 function beginWork(element) {
 	if (!element.stateNode) {
@@ -78,9 +29,9 @@ function beginWork(element) {
 function finishedWork(element) {
 	console.log('finishedWork', element);
 	if (isTextElement(element)) {
-		element.stateNode = element.generator.next(element.props).value;
+		element.stateNode = gen(element).next(element.props).value;
 	} else if (isHTMLTag(element.type) || element.type === Fragment) {
-		const temp = element.generator.next(element.props).value;
+		const temp = gen(element).next(element.props).value;
 		temp.appendChild(element.stateNode);
 		element.stateNode = temp;
 	} else {
@@ -131,7 +82,7 @@ function* postOrder(element) {
 
 		yield element;
 	} else {
-		const tempInnerRoot = element.generator.next(element.props).value;
+		const tempInnerRoot = gen(element).next(element.props).value;
 		if (tempInnerRoot != null) {
 			const innerRootElement = toValidElement(tempInnerRoot);
 			element.child = innerRootElement;
@@ -152,8 +103,8 @@ export const innerRender = (element, deleteKeySet) => {
 	for (const item of postOrder(element)) {
 		finishedWork(item);
 		deleteKeySet.delete(item._key);
-		if (item.generator.flushEffects) {
-			queueMacrotask(item.generator.flushEffects);
+		if (gen(item).flushEffects) {
+			queueMacrotask(gen(item).flushEffects);
 		}
 	}
 
@@ -193,12 +144,6 @@ export const elementWalker = (element, fun) => {
 	}
 };
 
-const renderList = new Set();
-const pushRenderElement = (generator) => {
-	renderList.add(generator);
-	queueMicrotaskOnce(forceRender);
-};
-
 const getCommonRenderElement = () => {
 	const elements = [...renderList.values()].map((gen) => gen.element);
 	renderList.clear();
@@ -218,7 +163,7 @@ const getCommonRenderElement = () => {
 	}
 };
 
-export const forceRender = () => {
+export function forceRender() {
 	const cursorFix = genCursorFix();
 
 	const element = getCommonRenderElement();
@@ -250,4 +195,4 @@ export const forceRender = () => {
 
 	startComment.remove();
 	cursorFix();
-};
+}

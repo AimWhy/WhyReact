@@ -1,4 +1,4 @@
-import { createRoot, jsx, Fragment } from 'WhyReact';
+import { createRoot, Fragment } from 'WhyReact';
 
 function Hello(props, oldProps, { useState, useEffect }) {
 	const [state, setState] = useState('aimwhy');
@@ -19,22 +19,22 @@ function Hello(props, oldProps, { useState, useEffect }) {
 		console.log('%c Hello Dep Update', 'color:#990;');
 	}, [window.a]);
 
-	return jsx('div', {
-		children: [
-			props.children(),
-			state,
-			jsx('div', { children: state2 }),
-			jsx('input', {
-				onInput: (e) => {
+	return (
+		<div>
+			{props.children()}
+			{state}
+			<div>{state2}</div>
+			<input
+				type="text"
+				value={state}
+				onInput={(e) => {
 					props.parentChange((v) => !v);
 					setState(e.target.value);
 					setState2(() => 'tt' + e.target.value.slice(-3));
-				},
-				value: state,
-				type: 'text'
-			})
-		]
-	});
+				}}
+			/>
+		</div>
+	);
 }
 
 function World(props, oldProps, { useState, useEffect }) {
@@ -46,17 +46,21 @@ function World(props, oldProps, { useState, useEffect }) {
 			console.log('%c World UnMounted', 'color:#0f0;');
 		};
 	}, []);
+
 	useEffect(() => {
 		console.log('%c World Update', 'color:#990;');
 	});
 
-	return jsx('div', {
-		onClickOnce: (e) => {
-			setState((v) => v + 2);
-			e.stopPropagation();
-		},
-		children: [state]
-	});
+	return (
+		<div
+			onClickOnce={(e) => {
+				setState((v) => v + 2);
+				e.stopPropagation();
+			}}
+		>
+			{state}
+		</div>
+	);
 }
 
 function App(props, oldProps, { useState, useEffect }) {
@@ -69,45 +73,34 @@ function App(props, oldProps, { useState, useEffect }) {
 			console.log('%c App UnMounted', 'color:#0f0;');
 		};
 	}, []);
+
 	useEffect(() => {
 		console.log('%c App Update', 'color:#990;');
 	});
 
-	return jsx('div', {
-		onClick: () => {
-			setState((v) => !v);
-		},
-		children: [
-			!state
-				? jsx(
-						Fragment,
-						{
-							children: ['Portal-aa', 'Portal-bb'],
-							target: document.body
-						},
-						'Portal'
-				  )
-				: 'Portal Origin',
+	return (
+		<div
+			onClick={() => {
+				setState((v) => !v);
+			}}
+		>
+			{!state ? (
+				<Fragment target={document.body} key="Portal">
+					Portal-aa
+				</Fragment>
+			) : (
+				'Portal Origin'
+			)}
 
-			jsx(
-				Hello,
-				{
-					parentChange: setState2,
-					id: 'hello',
-					children: () =>
-						jsx('i', {
-							children: ['i    ', state2]
-						})
-				},
-				'hello'
-			),
+			<Hello parentChange={setState2} key="hello">
+				{() => <i>i {state2}</i>}
+			</Hello>
 
-			state ? jsx(World) : '销毁后的文案',
+			{state ? <World /> : '销毁后的文案'}
 
-			['github!', null, ' aimwhy'],
-			<div>ddd</div>
-		]
-	});
+			{['github!', null, ' aimwhy']}
+		</div>
+	);
 }
 
-createRoot(document.querySelector('#main')).render(jsx(App));
+createRoot(document.querySelector('#main')).render(<App />);

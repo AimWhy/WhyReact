@@ -7,30 +7,7 @@ import {
 
 export const isTextElement = (element) => element.type === 'text';
 
-const buildIn = {
-	comment(props) {
-		return document.createComment(props.content);
-	},
-	text(props, oldProps, { instance, useEffect }) {
-		const element = instance || document.createTextNode(props.content);
-		if (__DEV__) {
-			console.log(`text 重用`, instance);
-		}
-		if (!oldProps || props.content !== oldProps.content) {
-			element.data = props.content;
-		}
-
-		useEffect(
-			() => () => {
-				element.remove(element);
-			},
-			[]
-		);
-
-		return element;
-	}
-};
-const genBuildInFun = function ($tag) {
+function genBuildInFun($tag) {
 	const func = function (
 		props = {},
 		oldProps = {},
@@ -108,6 +85,30 @@ const genBuildInFun = function ($tag) {
 
 	Object.defineProperty(func, 'name', { value: $tag });
 	return func;
+}
+
+const buildIn = {
+	comment(props) {
+		return document.createComment(props.content);
+	},
+	text(props, oldProps, { instance, useEffect }) {
+		const element = instance || document.createTextNode(props.content);
+		if (__DEV__) {
+			console.log(`text 重用`, instance);
+		}
+		if (!oldProps || props.content !== oldProps.content) {
+			element.data = props.content;
+		}
+
+		useEffect(
+			() => () => {
+				element.remove(element);
+			},
+			[]
+		);
+
+		return element;
+	}
 };
 
 HTML_TAGS.forEach((tag) => {

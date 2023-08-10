@@ -16,5 +16,29 @@ export default [
 			}),
 			cjs()
 		]
+	},
+	{
+		input: `./src/jsx-runtime.js`,
+		output: [
+			// jsx-runtime
+			{
+				file: `./dist/jsx-runtime.js`,
+				name: 'jsx-runtime',
+				format: 'umd'
+			},
+			// jsx-dev-runtime
+			{
+				file: `./dist/jsx-dev-runtime.js`,
+				name: 'jsx-dev-runtime',
+				format: 'umd'
+			}
+		],
+		plugins: [
+			replace({
+				__DEV__: true,
+				preventAssignment: true
+			}),
+			cjs()
+		]
 	}
 ];
