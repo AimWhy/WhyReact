@@ -1,5 +1,5 @@
-import { innerRender, toValidElement, Fragment } from './workLoop';
-import { jsx } from './jsx-runtime';
+import { innerRender, toValidElement } from './workLoop';
+import { jsx, Fragment } from './jsx-runtime';
 
 const createRoot = (container) => {
 	const key = container.id || (Date.now() + Math.random()).toString(36);
@@ -7,10 +7,8 @@ const createRoot = (container) => {
 	return {
 		render(element) {
 			element.key = element.key || key;
-
+			element.stateNode = container;
 			innerRender(element, new Set());
-
-			container.appendChild(element.stateNode);
 		}
 	};
 };

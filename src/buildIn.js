@@ -5,7 +5,8 @@ import {
 	includeBooleanAttr
 } from './util';
 
-export const isTextElement = (element) => element.type === 'text';
+export const isTextOrCommentElement = (element) =>
+	element.type === 'text' || element.type === 'comment';
 
 function onCompositionStart(e) {
 	e.target.composing = true;
@@ -52,7 +53,6 @@ function genBuildInFun($tag) {
 			console.log(`${$tag} 重用`, instance);
 		}
 		const element = instance || document.createElement($tag);
-		element.innerHTML = '';
 		const deleteMap = { ...oldProps };
 
 		for (const [pKey, pValue] of Object.entries(props)) {
@@ -108,7 +108,7 @@ function genBuildInFun($tag) {
 					const [eventName, options] = parseEventName(pKey);
 					element.removeEventListener(eventName, map.handler, options);
 				}
-				element.remove(element);
+				element.remove();
 			},
 			[]
 		);
@@ -121,8 +121,22 @@ function genBuildInFun($tag) {
 }
 
 const buildIn = {
-	comment(props) {
-		return document.createComment(props.content);
+	comment(props, oldProps, { instance, useEffect }) {
+		const element = instance || document.createComment(props.content);
+		if (__DEV__) {
+			console.log(`comment 重用`, instance);
+		}
+		if (!oldProps || props.content !== oldProps.content) {
+			element.data = props.content;
+		}
+		useEffect(
+			() => () => {
+				element.remove();
+			},
+			[]
+		);
+
+		return element;
 	},
 	text(props, oldProps, { instance, useEffect }) {
 		const element = instance || document.createTextNode(props.content);
@@ -135,7 +149,7 @@ const buildIn = {
 
 		useEffect(
 			() => () => {
-				element.remove(element);
+				element.remove();
 			},
 			[]
 		);

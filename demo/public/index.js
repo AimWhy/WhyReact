@@ -1,8 +1,13 @@
 (function (global, factory) {
-	typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
-	typeof define === 'function' && define.amd ? define(['exports'], factory) :
-	(global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.WhyReact = {}));
-})(this, (function (exports) { 'use strict';
+	typeof exports === 'object' && typeof module !== 'undefined'
+		? factory(exports)
+		: typeof define === 'function' && define.amd
+		? define(['exports'], factory)
+		: ((global =
+				typeof globalThis !== 'undefined' ? globalThis : global || self),
+		  factory((global.WhyReact = {})));
+})(this, function (exports) {
+	'use strict';
 
 	const makeMap = (list) => {
 		const map = Object.create(null);
@@ -200,33 +205,14 @@
 		};
 	};
 
-	const getCommentRang = (content) => {
-		const walker = document.createTreeWalker(
-			document.body,
-			NodeFilter.SHOW_COMMENT
-		);
-		const result = [];
-		let comment = walker.nextNode();
-
-		while (comment) {
-			if (comment.data === '^' + content) {
-				result.push(comment);
-			}
-			if (comment.data === content + '$') {
-				result.push(comment);
-				break;
-			}
-			comment = walker.nextNode();
-		}
-		return result;
-	};
-
 	const resolvedPromise = Promise.resolve();
 	const queueMicrotask =
 		window.queueMicrotask ||
 		((callback) => {
 			if (typeof callback !== 'function') {
-				throw new TypeError('The argument to queueMicrotask must be a function.');
+				throw new TypeError(
+					'The argument to queueMicrotask must be a function.'
+				);
 			}
 
 			resolvedPromise.then(callback).catch((error) =>
@@ -278,7 +264,8 @@
 		}
 	};
 
-	const isTextElement = (element) => element.type === 'text';
+	const isTextOrCommentElement = (element) =>
+		element.type === 'text' || element.type === 'comment';
 
 	function onCompositionStart(e) {
 		e.target.composing = true;
@@ -321,7 +308,6 @@
 
 			const [invokers] = useState({});
 			const element = instance || document.createElement($tag);
-			element.innerHTML = '';
 			const deleteMap = { ...oldProps };
 
 			for (const [pKey, pValue] of Object.entries(props)) {
@@ -336,7 +322,11 @@
 							}
 						};
 
-						element.addEventListener(eventName, invokers[pKey].handler, options);
+						element.addEventListener(
+							eventName,
+							invokers[pKey].handler,
+							options
+						);
 					} else {
 						invokers[pKey].raw = pValue;
 					}
@@ -377,7 +367,7 @@
 						const [eventName, options] = parseEventName(pKey);
 						element.removeEventListener(eventName, map.handler, options);
 					}
-					element.remove(element);
+					element.remove();
 				},
 				[]
 			);
@@ -390,8 +380,19 @@
 	}
 
 	const buildIn = {
-		comment(props) {
-			return document.createComment(props.content);
+		comment(props, oldProps, { instance, useEffect }) {
+			const element = instance || document.createComment(props.content);
+			if (!oldProps || props.content !== oldProps.content) {
+				element.data = props.content;
+			}
+			useEffect(
+				() => () => {
+					element.remove();
+				},
+				[]
+			);
+
+			return element;
 		},
 		text(props, oldProps, { instance, useEffect }) {
 			const element = instance || document.createTextNode(props.content);
@@ -401,7 +402,7 @@
 
 			useEffect(
 				() => () => {
-					element.remove(element);
+					element.remove();
 				},
 				[]
 			);
@@ -610,6 +611,22 @@
 		return GeneratorPool[element._key];
 	}
 
+	const genKey = (element) => {
+		let pKey = '';
+		if (element.return) {
+			pKey = element.return._key + ':';
+		}
+
+		let cKey = element.key;
+		if (!cKey) {
+			const typeName = element.type.name || element.type;
+			const index = element.index ? '_' + element.index : '';
+			cKey = `${typeName}${index}`;
+		}
+
+		return `${pKey}${cKey}`;
+	};
+
 	function jsx(type, props = {}, key = null) {
 		return {
 			key,
@@ -617,6 +634,7 @@
 			props,
 
 			child: null,
+			previous: null,
 			sibling: null,
 			return: null,
 			index: 0,
@@ -624,14 +642,29 @@
 			stateNode: null,
 
 			get _key() {
-				const typeName =
-					typeof this.type === 'string' ? this.type : this.type.name;
-				const pKey = this.return ? this.return._key : '';
-				const cKey = this.key || `${typeName}_${this.index}`;
-				return `${pKey}:${cKey}`;
+				return genKey(this);
 			}
 		};
 	}
+
+	function Fragment(props) {
+		return props.children;
+	}
+
+	function InnerFragment() {
+		return document.createDocumentFragment();
+	}
+	Object.defineProperty(InnerFragment, 'name', { value: 'F' });
+
+	const wrapInnerFragment = (children, key) => {
+		children = [
+			jsx('comment', { content: '^' + key }),
+			...[children].flat(5),
+			jsx('comment', { content: key + `$` })
+		];
+
+		return jsx(InnerFragment, { children });
+	};
 
 	const renderList = new Set();
 	const pushRenderElement = (generatorObj) => {
@@ -639,46 +672,85 @@
 		queueMicrotaskOnce(forceRender);
 	};
 
+	function getElement(pElement) {
+		let pNode = pElement.stateNode;
+		if (typeof pElement.type === 'function') {
+			if (pElement.type !== InnerFragment) {
+				pElement = pElement.return;
+			}
+			let children = pElement.props.children;
+			pNode = [children[0].stateNode, children[children.length - 1].stateNode];
+		}
+
+		return pNode;
+	}
+
+	const insertNode = (pElement, cElement) => {
+		let pNode = getElement(pElement);
+
+		let preNode = cElement.previous ? getElement(cElement.previous) : null;
+
+		if (preNode) {
+			if (Array.isArray(preNode)) {
+				preNode[1].after(cElement.stateNode);
+			} else {
+				preNode.after(cElement.stateNode);
+			}
+		} else {
+			if (Array.isArray(pNode)) {
+				pNode[0].after(cElement.stateNode);
+			} else {
+				pNode.prepend(cElement.stateNode);
+			}
+		}
+	};
+
 	const gen = (element) => generator(pushRenderElement, element);
 
+	let isMounted = true;
 	function beginWork(element) {
 		if (!element.stateNode) {
 			element.stateNode = document.createDocumentFragment();
-		}
-
-		if (typeof element.type === 'function' && element.type !== Fragment) {
-			element.stateNode.appendChild(
-				buildInMap.comment({ content: '^' + element._key })
-			);
+		} else {
+			console.log('%c 更新的根节点"', 'color:#0f0;', element);
 		}
 	}
 
 	function finishedWork(element) {
-		if (isTextElement(element)) {
+		console.log(element);
+		if (isTextOrCommentElement(element)) {
 			element.stateNode = gen(element).next(element.props).value;
-		} else if (isHTMLTag(element.type) || element.type === Fragment) {
+		} else if (isHTMLTag(element.type) || element.type === InnerFragment) {
 			const temp = gen(element).next(element.props).value;
 			temp.appendChild(element.stateNode);
 			element.stateNode = temp;
-		} else {
-			element.stateNode.appendChild(
-				buildInMap.comment({ content: element._key + '$' })
-			);
 		}
 
-		if (element.type === Fragment && element.props.target) {
+		if (element.type === InnerFragment && element.props.target) {
 			element.props.target.appendChild(element.stateNode);
-		} else if (element.return && element.return.stateNode) {
+		}
+
+		if (!element.return) {
+			return;
+		}
+
+		if (isMounted || gen(element.return).StatusLane & MountedLane) {
 			element.return.stateNode.appendChild(element.stateNode);
+			return;
+		}
+
+		if (gen(element).StatusLane & MountedLane) {
+			insertNode(element.return, element);
+			return;
 		}
 	}
 
 	function* postOrder(element) {
 		beginWork(element);
 
-		if (isTextElement(element)) {
+		if (isTextOrCommentElement(element)) {
 			yield element;
-		} else if (isHTMLTag(element.type) || element.type === Fragment) {
+		} else if (isHTMLTag(element.type) || element.type === InnerFragment) {
 			let tempChildren = element.props.children;
 			if (tempChildren) {
 				if (!Array.isArray(tempChildren)) {
@@ -699,6 +771,7 @@
 							element.child = child;
 						} else {
 							prevSibling.sibling = child;
+							child.previous = prevSibling;
 						}
 						prevSibling = child;
 						yield* postOrder(child);
@@ -708,21 +781,27 @@
 
 			yield element;
 		} else {
+			console.log(element);
 			const tempInnerRoot = gen(element).next(element.props).value;
-			if (tempInnerRoot != null) {
-				const innerRootElement = toValidElement(tempInnerRoot);
-				element.child = innerRootElement;
-				innerRootElement.return = element;
-				innerRootElement.index = 0;
 
-				yield* postOrder(innerRootElement);
-			}
+			const innerRootElement = wrapInnerFragment(tempInnerRoot, element._key);
+
+			element.child = innerRootElement;
+			innerRootElement.return = element;
+			innerRootElement.index = 0;
+
+			yield* postOrder(innerRootElement);
 
 			yield element;
 		}
 	}
 
 	const innerRender = (element, deleteKeySet) => {
+		isMounted = !deleteKeySet.size;
+		if (!isMounted) {
+			console.error(element);
+			let pReturn = element.return;
+		}
 
 		for (const item of postOrder(element)) {
 			finishedWork(item);
@@ -738,10 +817,6 @@
 				GeneratorPool[item].flushCleanEffects(true);
 			}
 		}
-	};
-
-	const Fragment = () => {
-		return document.createDocumentFragment();
 	};
 
 	const elementWalker = (element, fun) => {
@@ -778,7 +853,7 @@
 			return jsx('text', { content: element });
 		}
 		if (Array.isArray(element)) {
-			return jsx(Fragment, { children: element.flat(5) });
+			return wrapInnerFragment(element, '');
 		}
 		return jsx('text', { content: '' });
 	};
@@ -806,18 +881,6 @@
 		const cursorFix = genCursorFix();
 
 		const element = getCommonRenderElement();
-		const [startComment, endComment] = getCommentRang(element._key);
-		// 删除旧的注释节点
-		const range = document.createRange();
-		range.setStartAfter(startComment);
-		range.setEndAfter(endComment);
-		range.deleteContents();
-
-		let returnStateNode;
-		if (element.return) {
-			returnStateNode = element.return.stateNode;
-			element.return.stateNode = null;
-		}
 
 		const existKeySet = new Set();
 		elementWalker(element, (el) => {
@@ -826,13 +889,6 @@
 
 		innerRender(element, existKeySet);
 
-		if (element.return) {
-			element.return.stateNode = returnStateNode;
-		}
-
-		startComment.parentNode.insertBefore(element.stateNode, startComment);
-
-		startComment.remove();
 		cursorFix();
 	}
 
@@ -842,10 +898,8 @@
 		return {
 			render(element) {
 				element.key = element.key || key;
-
+				element.stateNode = container;
 				innerRender(element, new Set());
-
-				container.appendChild(element.stateNode);
 			}
 		};
 	};
@@ -854,5 +908,4 @@
 	exports.createRoot = createRoot;
 	exports.jsx = jsx;
 	exports.toValidElement = toValidElement;
-
-}));
+});

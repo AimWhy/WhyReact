@@ -1,4 +1,4 @@
-import { createRoot, Fragment, jsx } from 'WhyReact';
+const { createRoot, Fragment: Fragment1 } = window.WhyReact;
 
 function Hello(props, oldProps, { useState, useEffect }) {
 	const [state, setState] = useState('aimwhy');
@@ -20,7 +20,7 @@ function Hello(props, oldProps, { useState, useEffect }) {
 	}, [window.a]);
 
 	return (
-		<div>
+		<>
 			{props.children()}
 			{state}
 			<div>{state2}</div>
@@ -33,7 +33,7 @@ function Hello(props, oldProps, { useState, useEffect }) {
 					setState2(() => 'tt' + e.target.value.slice(-3));
 				}}
 			/>
-		</div>
+		</>
 	);
 }
 
@@ -79,15 +79,22 @@ function App(props, oldProps, { useState, useEffect }) {
 	});
 
 	return (
-		<div
-			onClick={() => {
-				setState((v) => !v);
-			}}
-		>
+		<Fragment1 key="99">
+			<button
+				onClick={() => {
+					setState((v) => !v);
+				}}
+			>
+				点击事件
+			</button>
+			<Fragment1 key="88">
+				<div>Fragment</div>
+			</Fragment1>
+
 			{!state ? (
-				<Fragment target={document.body} key="Portal">
-					Portal-aa
-				</Fragment>
+				<Fragment1 key="77">
+					<div>Portal-aa</div>
+				</Fragment1>
 			) : (
 				'Portal Origin'
 			)}
@@ -99,8 +106,8 @@ function App(props, oldProps, { useState, useEffect }) {
 			{state ? <World /> : '销毁后的文案'}
 
 			{['github!', null, ' aimwhy']}
-		</div>
+		</Fragment1>
 	);
 }
 
-createRoot(document.querySelector('#main')).render(<App />);
+createRoot(document.querySelector('#app')).render(<App />);

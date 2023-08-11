@@ -1,8 +1,28 @@
-import { isHTMLTag, genCursorFix, getCommentRang } from './util';
+import { isHTMLTag, genCursorFix } from './util';
 import { queueMacrotask, queueMicrotaskOnce } from './taskQueue';
-import { buildInMap, isTextElement } from './buildIn';
-import { UnMountedLane, GeneratorPool, generator } from './generator';
+import { isTextOrCommentElement } from './buildIn';
+import {
+	UnMountedLane,
+	MountedLane,
+	GeneratorPool,
+	generator
+} from './generator';
 import { jsx } from './jsx-runtime';
+
+function InnerFragment() {
+	return document.createDocumentFragment();
+}
+Object.defineProperty(InnerFragment, 'name', { value: 'F' });
+
+const wrapInnerFragment = (children, key) => {
+	children = [
+		jsx('comment', { content: '^' + key }),
+		...[children].flat(5),
+		jsx('comment', { content: key + `$` })
+	];
+
+	return jsx(InnerFragment, { children });
+};
 
 const renderList = new Set();
 const pushRenderElement = (generatorObj) => {
@@ -10,19 +30,16 @@ const pushRenderElement = (generatorObj) => {
 	queueMicrotaskOnce(forceRender);
 };
 
+const insertNode = () => {};
+
 export const gen = (element) => generator(pushRenderElement, element);
 
+let isMounted = true;
 function beginWork(element) {
 	if (!element.stateNode) {
 		element.stateNode = document.createDocumentFragment();
 	} else if (__DEV__) {
 		console.log('%c 更新的根节点"', 'color:#0f0;', element);
-	}
-
-	if (typeof element.type === 'function' && element.type !== Fragment) {
-		element.stateNode.appendChild(
-			buildInMap.comment({ content: '^' + element._key })
-		);
 	}
 }
 
@@ -30,31 +47,39 @@ function finishedWork(element) {
 	if (__DEV__) {
 		console.log('finishedWork', element);
 	}
-	if (isTextElement(element)) {
+	if (isTextOrCommentElement(element)) {
 		element.stateNode = gen(element).next(element.props).value;
-	} else if (isHTMLTag(element.type) || element.type === Fragment) {
+	} else if (isHTMLTag(element.type) || element.type === InnerFragment) {
 		const temp = gen(element).next(element.props).value;
 		temp.appendChild(element.stateNode);
 		element.stateNode = temp;
-	} else {
-		element.stateNode.appendChild(
-			buildInMap.comment({ content: element._key + '$' })
-		);
 	}
 
-	if (element.type === Fragment && element.props.target) {
+	if (element.type === InnerFragment && element.props.target) {
 		element.props.target.appendChild(element.stateNode);
-	} else if (element.return && element.return.stateNode) {
+	}
+
+	if (!element.return) {
+		return;
+	}
+
+	if (isMounted || gen(element.return).StatusLane & MountedLane) {
 		element.return.stateNode.appendChild(element.stateNode);
+		return;
+	}
+
+	if (gen(element).StatusLane & MountedLane) {
+		insertNode(element.return, element);
+		return;
 	}
 }
 
 function* postOrder(element) {
 	beginWork(element);
 
-	if (isTextElement(element)) {
+	if (isTextOrCommentElement(element)) {
 		yield element;
-	} else if (isHTMLTag(element.type) || element.type === Fragment) {
+	} else if (isHTMLTag(element.type) || element.type === InnerFragment) {
 		let tempChildren = element.props.children;
 		if (tempChildren) {
 			if (!Array.isArray(tempChildren)) {
@@ -75,6 +100,7 @@ function* postOrder(element) {
 						element.child = child;
 					} else {
 						prevSibling.sibling = child;
+						child.previous = prevSibling;
 					}
 					prevSibling = child;
 					yield* postOrder(child);
@@ -84,21 +110,23 @@ function* postOrder(element) {
 
 		yield element;
 	} else {
+		console.log(element);
 		const tempInnerRoot = gen(element).next(element.props).value;
-		if (tempInnerRoot != null) {
-			const innerRootElement = toValidElement(tempInnerRoot);
-			element.child = innerRootElement;
-			innerRootElement.return = element;
-			innerRootElement.index = 0;
 
-			yield* postOrder(innerRootElement);
-		}
+		const innerRootElement = wrapInnerFragment(tempInnerRoot, element._key);
+
+		element.child = innerRootElement;
+		innerRootElement.return = element;
+		innerRootElement.index = 0;
+
+		yield* postOrder(innerRootElement);
 
 		yield element;
 	}
 }
 
 export const innerRender = (element, deleteKeySet) => {
+	isMounted = !deleteKeySet.size;
 	if (__DEV__) {
 		console.clear();
 		console.log('%c innerRender"', 'color:#0f0;', element);
@@ -121,10 +149,6 @@ export const innerRender = (element, deleteKeySet) => {
 	if (__DEV__) {
 		console.log('deleteKeySet', deleteKeySet);
 	}
-};
-
-export const Fragment = () => {
-	return document.createDocumentFragment();
 };
 
 export const elementWalker = (element, fun) => {
@@ -161,7 +185,7 @@ export const toValidElement = (element) => {
 		return jsx('text', { content: element });
 	}
 	if (Array.isArray(element)) {
-		return jsx(Fragment, { children: element.flat(5) });
+		return wrapInnerFragment(element, '');
 	}
 	return jsx('text', { content: '' });
 };
@@ -189,18 +213,6 @@ export function forceRender() {
 	const cursorFix = genCursorFix();
 
 	const element = getCommonRenderElement();
-	const [startComment, endComment] = getCommentRang(element._key);
-	// 删除旧的注释节点
-	const range = document.createRange();
-	range.setStartAfter(startComment);
-	range.setEndAfter(endComment);
-	range.deleteContents();
-
-	let returnStateNode;
-	if (element.return) {
-		returnStateNode = element.return.stateNode;
-		element.return.stateNode = null;
-	}
 
 	const existKeySet = new Set();
 	elementWalker(element, (el) => {
@@ -209,12 +221,5 @@ export function forceRender() {
 
 	innerRender(element, existKeySet);
 
-	if (element.return) {
-		element.return.stateNode = returnStateNode;
-	}
-
-	startComment.parentNode.insertBefore(element.stateNode, startComment);
-
-	startComment.remove();
 	cursorFix();
 }

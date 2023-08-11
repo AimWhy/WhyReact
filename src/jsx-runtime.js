@@ -1,3 +1,19 @@
+export const genKey = (element) => {
+	let pKey = '';
+	if (element.return) {
+		pKey = element.return._key + ':';
+	}
+
+	let cKey = element.key;
+	if (!cKey) {
+		const typeName = element.type.name || element.type;
+		const index = element.index ? '_' + element.index : '';
+		cKey = `${typeName}${index}`;
+	}
+
+	return `${pKey}${cKey}`;
+};
+
 export function jsx(type, props = {}, key = null) {
 	return {
 		key,
@@ -5,6 +21,7 @@ export function jsx(type, props = {}, key = null) {
 		props,
 
 		child: null,
+		previous: null,
 		sibling: null,
 		return: null,
 		index: 0,
@@ -12,11 +29,11 @@ export function jsx(type, props = {}, key = null) {
 		stateNode: null,
 
 		get _key() {
-			const typeName =
-				typeof this.type === 'string' ? this.type : this.type.name;
-			const pKey = this.return ? this.return._key : '';
-			const cKey = this.key || `${typeName}_${this.index}`;
-			return `${pKey}:${cKey}`;
+			return genKey(this);
 		}
 	};
+}
+
+export function Fragment(props) {
+	return props.children;
 }

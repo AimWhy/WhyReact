@@ -5,7 +5,7 @@ import replace from '@rollup/plugin-replace';
 export default defineConfig({
 	plugins: [
 		react({
-			jsxImportSource: 'WhyReact'
+			jsxImportSource: '../src/'
 		}),
 		replace({
 			__DEV__: true,
@@ -13,15 +13,6 @@ export default defineConfig({
 		})
 	],
 	resolve: {
-		alias: [
-			{
-				find: 'src/index/jsx-dev-runtime',
-				replacement: '../src/index'
-			},
-			{
-				find: 'WhyReact',
-				replacement: '../src'
-			}
-		]
+		alias: []
 	}
 });

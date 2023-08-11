@@ -193,24 +193,3 @@ export const genCursorFix = () => {
 		focusedElement.selectionEnd = end;
 	};
 };
-
-export const getCommentRang = (content) => {
-	const walker = document.createTreeWalker(
-		document.body,
-		NodeFilter.SHOW_COMMENT
-	);
-	const result = [];
-	let comment = walker.nextNode();
-
-	while (comment) {
-		if (comment.data === '^' + content) {
-			result.push(comment);
-		}
-		if (comment.data === content + '$') {
-			result.push(comment);
-			break;
-		}
-		comment = walker.nextNode();
-	}
-	return result;
-};
