@@ -1,4 +1,4 @@
-import { createRoot, Fragment } from 'WhyReact';
+import { createRoot, Fragment, jsx } from 'WhyReact';
 
 function Hello(props, oldProps, { useState, useEffect }) {
 	const [state, setState] = useState('aimwhy');
@@ -103,4 +103,7 @@ function App(props, oldProps, { useState, useEffect }) {
 	);
 }
 
-createRoot(document.querySelector('#main')).render(<App />);
+const Hello2 = ({ toWhat }) =>
+	jsx('div', { children: `Hello ${toWhat}` }, null);
+
+createRoot(document.querySelector('#main')).render(<Hello2 />);

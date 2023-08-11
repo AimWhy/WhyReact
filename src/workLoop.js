@@ -15,7 +15,7 @@ export const gen = (element) => generator(pushRenderElement, element);
 function beginWork(element) {
 	if (!element.stateNode) {
 		element.stateNode = document.createDocumentFragment();
-	} else {
+	} else if (__DEV__) {
 		console.log('%c 更新的根节点"', 'color:#0f0;', element);
 	}
 
@@ -27,7 +27,9 @@ function beginWork(element) {
 }
 
 function finishedWork(element) {
-	console.log('finishedWork', element);
+	if (__DEV__) {
+		console.log('finishedWork', element);
+	}
 	if (isTextElement(element)) {
 		element.stateNode = gen(element).next(element.props).value;
 	} else if (isHTMLTag(element.type) || element.type === Fragment) {
@@ -97,8 +99,10 @@ function* postOrder(element) {
 }
 
 export const innerRender = (element, deleteKeySet) => {
-	console.clear();
-	console.log('%c innerRender"', 'color:#0f0;', element);
+	if (__DEV__) {
+		console.clear();
+		console.log('%c innerRender"', 'color:#0f0;', element);
+	}
 
 	for (const item of postOrder(element)) {
 		finishedWork(item);
@@ -114,8 +118,9 @@ export const innerRender = (element, deleteKeySet) => {
 			GeneratorPool[item].flushCleanEffects(true);
 		}
 	}
-
-	console.log('deleteKeySet', deleteKeySet);
+	if (__DEV__) {
+		console.log('deleteKeySet', deleteKeySet);
+	}
 };
 
 export const elementWalker = (element, fun) => {

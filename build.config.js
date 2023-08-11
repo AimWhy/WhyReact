@@ -11,7 +11,7 @@ export default [
 		},
 		plugins: [
 			replace({
-				__DEV__: true,
+				__DEV__: false,
 				preventAssignment: true
 			}),
 			cjs()
@@ -35,7 +35,7 @@ export default [
 		],
 		plugins: [
 			replace({
-				__DEV__: true,
+				__DEV__: false,
 				preventAssignment: true
 			}),
 			cjs()

@@ -287,10 +287,6 @@
 			{ instance, useState, useEffect }
 		) {
 			const [invokers] = useState({});
-
-			{
-				console.log(`${$tag} 重用`, instance);
-			}
 			const element = instance || document.createElement($tag);
 			element.innerHTML = '';
 			const deleteMap = { ...oldProps };
@@ -366,9 +362,6 @@
 		},
 		text(props, oldProps, { instance, useEffect }) {
 			const element = instance || document.createTextNode(props.content);
-			{
-				console.log(`text 重用`, instance);
-			}
 			if (!oldProps || props.content !== oldProps.content) {
 				element.data = props.content;
 			}
@@ -672,8 +665,6 @@
 	function beginWork(element) {
 		if (!element.stateNode) {
 			element.stateNode = document.createDocumentFragment();
-		} else {
-			console.log('%c 更新的根节点"', 'color:#0f0;', element);
 		}
 
 		if (typeof element.type === 'function' && element.type !== Fragment) {
@@ -684,7 +675,6 @@
 	}
 
 	function finishedWork(element) {
-		console.log('finishedWork', element);
 		if (isTextElement(element)) {
 			element.stateNode = gen(element).next(element.props).value;
 		} else if (isHTMLTag(element.type) || element.type === Fragment) {
@@ -754,8 +744,6 @@
 	}
 
 	const innerRender = (element, deleteKeySet) => {
-		console.clear();
-		console.log('%c innerRender"', 'color:#0f0;', element);
 
 		for (const item of postOrder(element)) {
 			finishedWork(item);
@@ -771,8 +759,6 @@
 				GeneratorPool[item].flushCleanEffects(true);
 			}
 		}
-
-		console.log('deleteKeySet', deleteKeySet);
 	};
 
 	const elementWalker = (element, fun) => {
