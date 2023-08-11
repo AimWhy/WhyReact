@@ -1,4 +1,3 @@
-import { jsx, Fragment } from './jsx-runtime';
+import { jsx } from './jsx-runtime';
 
-const jsxDEV = jsx;
-export { Fragment, jsxDEV };
+export const jsxDEV = jsx;

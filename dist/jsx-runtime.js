@@ -27,25 +27,6 @@
 		};
 	}
 
-	const toValidElement = (element) => {
-		if (element && element.type) {
-			return element;
-		}
-		if (typeof element === 'string' || typeof element === 'number') {
-			return jsx('text', { content: element });
-		}
-		if (Array.isArray(element)) {
-			return jsx(Fragment, { children: element.flat(5) });
-		}
-		return jsx('text', { content: '' });
-	};
-
-	const Fragment = () => {
-		return document.createDocumentFragment();
-	};
-
-	exports.Fragment = Fragment;
 	exports.jsx = jsx;
-	exports.toValidElement = toValidElement;
 
 }));

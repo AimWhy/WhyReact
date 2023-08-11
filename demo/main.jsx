@@ -103,7 +103,4 @@ function App(props, oldProps, { useState, useEffect }) {
 	);
 }
 
-const Hello2 = ({ toWhat }) =>
-	jsx('div', { children: `Hello ${toWhat}` }, null);
-
-createRoot(document.querySelector('#main')).render(<Hello2 />);
+createRoot(document.querySelector('#main')).render(<App />);

@@ -280,12 +280,45 @@
 
 	const isTextElement = (element) => element.type === 'text';
 
+	function onCompositionStart(e) {
+		e.target.composing = true;
+	}
+	function onCompositionEnd(e) {
+		const target = e.target;
+		if (target.composing) {
+			target.composing = false;
+			target.dispatchEvent(new Event('input'));
+		}
+	}
+
+	function inputWrap(fun) {
+		return function (e) {
+			if (!e.target.composing) {
+				fun(e);
+			}
+		};
+	}
+
+	function fixProps(oldProps) {
+		const newProps = { ...oldProps };
+		if ('onInput' in newProps) {
+			newProps['onCompositionstart'] = onCompositionStart;
+			newProps['onCompositionend'] = onCompositionEnd;
+			newProps['onChange'] = onCompositionEnd;
+			newProps['onInput'] = inputWrap(newProps['onInput']);
+		}
+		return newProps;
+	}
+
 	function genBuildInFun($tag) {
 		const func = function (
 			props = {},
 			oldProps = {},
 			{ instance, useState, useEffect }
 		) {
+			oldProps = fixProps(oldProps);
+			props = fixProps(props);
+
 			const [invokers] = useState({});
 			const element = instance || document.createElement($tag);
 			element.innerHTML = '';
@@ -381,9 +414,7 @@
 		buildIn[tag] = genBuildInFun(tag);
 	});
 
-	const HostElementSet = new Set(Object.values(buildIn));
-
-	const isHostElementFn = (func) => HostElementSet.has(func);
+	new Set(Object.values(buildIn));
 
 	const buildInMap = buildIn;
 
@@ -427,42 +458,11 @@
 		}
 	};
 
-	function onCompositionStart(e) {
-		e.target.composing = true;
-	}
-	function onCompositionEnd(e) {
-		const target = e.target;
-		if (target.composing) {
-			target.composing = false;
-			target.dispatchEvent(new Event('input'));
-		}
-	}
-
-	function inputWrap(fun) {
-		return function (e) {
-			if (!e.target.composing) {
-				fun(e);
-			}
-		};
-	}
-
-	function fixProps(oldProps) {
-		const newProps = { ...oldProps };
-		if ('onInput' in newProps) {
-			newProps['onCompositionstart'] = onCompositionStart;
-			newProps['onCompositionend'] = onCompositionEnd;
-			newProps['onChange'] = onCompositionEnd;
-			newProps['onInput'] = inputWrap(newProps['onInput']);
-		}
-		return newProps;
-	}
-
 	function* withStateFun(func, pushRenderElement) {
 		const self = yield;
 
 		let StateIndex = 0;
 		const hookQueue = [];
-		const isHostElement = isHostElementFn(func);
 
 		const useState = (initialState) => {
 			const innerIndex = StateIndex++;
@@ -581,10 +581,6 @@
 		while (true) {
 			self.flushCleanEffects();
 
-			if (isHostElement) {
-				newProps = fixProps(newProps);
-			}
-
 			StateIndex = 0;
 			result = func.call(hookMap, newProps, props, hookMap);
 
@@ -636,23 +632,6 @@
 			}
 		};
 	}
-
-	const toValidElement = (element) => {
-		if (element && element.type) {
-			return element;
-		}
-		if (typeof element === 'string' || typeof element === 'number') {
-			return jsx('text', { content: element });
-		}
-		if (Array.isArray(element)) {
-			return jsx(Fragment, { children: element.flat(5) });
-		}
-		return jsx('text', { content: '' });
-	};
-
-	const Fragment = () => {
-		return document.createDocumentFragment();
-	};
 
 	const renderList = new Set();
 	const pushRenderElement = (generatorObj) => {
@@ -761,6 +740,10 @@
 		}
 	};
 
+	const Fragment = () => {
+		return document.createDocumentFragment();
+	};
+
 	const elementWalker = (element, fun) => {
 		let cursor = element;
 		if (!cursor.child) {
@@ -785,6 +768,19 @@
 			}
 			cursor = cursor.sibling;
 		}
+	};
+
+	const toValidElement = (element) => {
+		if (element && element.type) {
+			return element;
+		}
+		if (typeof element === 'string' || typeof element === 'number') {
+			return jsx('text', { content: element });
+		}
+		if (Array.isArray(element)) {
+			return jsx(Fragment, { children: element.flat(5) });
+		}
+		return jsx('text', { content: '' });
 	};
 
 	const getCommonRenderElement = () => {

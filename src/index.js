@@ -1,5 +1,5 @@
-import { innerRender } from './workLoop';
-import { jsx, toValidElement, Fragment } from './jsx-runtime';
+import { innerRender, toValidElement, Fragment } from './workLoop';
+import { jsx } from './jsx-runtime';
 
 const createRoot = (container) => {
 	const key = container.id || (Date.now() + Math.random()).toString(36);

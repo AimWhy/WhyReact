@@ -7,12 +7,45 @@ import {
 
 export const isTextElement = (element) => element.type === 'text';
 
+function onCompositionStart(e) {
+	e.target.composing = true;
+}
+function onCompositionEnd(e) {
+	const target = e.target;
+	if (target.composing) {
+		target.composing = false;
+		target.dispatchEvent(new Event('input'));
+	}
+}
+
+function inputWrap(fun) {
+	return function (e) {
+		if (!e.target.composing) {
+			fun(e);
+		}
+	};
+}
+
+function fixProps(oldProps) {
+	const newProps = { ...oldProps };
+	if ('onInput' in newProps) {
+		newProps['onCompositionstart'] = onCompositionStart;
+		newProps['onCompositionend'] = onCompositionEnd;
+		newProps['onChange'] = onCompositionEnd;
+		newProps['onInput'] = inputWrap(newProps['onInput']);
+	}
+	return newProps;
+}
+
 function genBuildInFun($tag) {
 	const func = function (
 		props = {},
 		oldProps = {},
 		{ instance, useState, useEffect }
 	) {
+		oldProps = fixProps(oldProps);
+		props = fixProps(props);
+
 		const [invokers] = useState({});
 
 		if (__DEV__) {

@@ -2,7 +2,7 @@ import { isHTMLTag, genCursorFix, getCommentRang } from './util';
 import { queueMacrotask, queueMicrotaskOnce } from './taskQueue';
 import { buildInMap, isTextElement } from './buildIn';
 import { UnMountedLane, GeneratorPool, generator } from './generator';
-import { toValidElement, Fragment } from './jsx-runtime';
+import { jsx } from './jsx-runtime';
 
 const renderList = new Set();
 const pushRenderElement = (generatorObj) => {
@@ -123,6 +123,10 @@ export const innerRender = (element, deleteKeySet) => {
 	}
 };
 
+export const Fragment = () => {
+	return document.createDocumentFragment();
+};
+
 export const elementWalker = (element, fun) => {
 	let cursor = element;
 	if (!cursor.child) {
@@ -147,6 +151,19 @@ export const elementWalker = (element, fun) => {
 		}
 		cursor = cursor.sibling;
 	}
+};
+
+export const toValidElement = (element) => {
+	if (element && element.type) {
+		return element;
+	}
+	if (typeof element === 'string' || typeof element === 'number') {
+		return jsx('text', { content: element });
+	}
+	if (Array.isArray(element)) {
+		return jsx(Fragment, { children: element.flat(5) });
+	}
+	return jsx('text', { content: '' });
 };
 
 const getCommonRenderElement = () => {

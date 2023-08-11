@@ -1,5 +1,5 @@
 import { shallowEqual } from './util';
-import { isHostElementFn, buildInMap } from './buildIn';
+import { buildInMap } from './buildIn';
 
 export const NoneLane = 0b000001;
 export const MountedLane = 0b000010;
@@ -41,42 +41,11 @@ const checkIfSnapshotChanged = ({ value, getSnapshot }) => {
 	}
 };
 
-function onCompositionStart(e) {
-	e.target.composing = true;
-}
-function onCompositionEnd(e) {
-	const target = e.target;
-	if (target.composing) {
-		target.composing = false;
-		target.dispatchEvent(new Event('input'));
-	}
-}
-
-function inputWrap(fun) {
-	return function (e) {
-		if (!e.target.composing) {
-			fun(e);
-		}
-	};
-}
-
-function fixProps(oldProps) {
-	const newProps = { ...oldProps };
-	if ('onInput' in newProps) {
-		newProps['onCompositionstart'] = onCompositionStart;
-		newProps['onCompositionend'] = onCompositionEnd;
-		newProps['onChange'] = onCompositionEnd;
-		newProps['onInput'] = inputWrap(newProps['onInput']);
-	}
-	return newProps;
-}
-
 function* withStateFun(func, pushRenderElement) {
 	const self = yield;
 
 	let StateIndex = 0;
 	const hookQueue = [];
-	const isHostElement = isHostElementFn(func);
 
 	const useState = (initialState) => {
 		const innerIndex = StateIndex++;
@@ -194,10 +163,6 @@ function* withStateFun(func, pushRenderElement) {
 
 	while (true) {
 		self.flushCleanEffects();
-
-		if (isHostElement) {
-			newProps = fixProps(newProps);
-		}
 
 		StateIndex = 0;
 		result = func.call(hookMap, newProps, props, hookMap);
