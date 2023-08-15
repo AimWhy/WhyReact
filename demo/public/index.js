@@ -8,7 +8,6 @@ const makeMap = (list) => {
 	return (val) => !!map[val];
 };
 
-const MemoPoolMap = new Map();
 const objectEqual = (object1, object2, isDeep) => {
 	if (object1 === object2) {
 		return true;
@@ -35,13 +34,8 @@ const objectEqual = (object1, object2, isDeep) => {
 		const o2 = object2[key];
 
 		if (isDeep) {
-			const memo = MemoPoolMap.get(o1);
-			if (memo && memo[0] === o2) {
-				return memo[1];
-			} else if (!objectEqual(o1, o2, true)) {
+			if (!objectEqual(o1, o2, true)) {
 				return false;
-			} else if (o1 && o2 && typeof o1 === 'object' && typeof o2 === 'object') {
-				MemoPoolMap.set(o1, [o2, true]);
 			}
 		} else if (o1 !== o2) {
 			return false;
@@ -314,12 +308,6 @@ const isHostElementFiber = (fiber) => HostElementSet.has(fiber.type);
 const MountedLane = 0;
 const UpdatedLane = 1;
 
-const Reuse = {
-	skip: 1,
-	dirty: 2,
-	retain: 3
-};
-
 const firstNextWithProps = (generatorFunction) => {
 	return (func, pushRenderFiber) => {
 		const generatorObject = generatorFunction(func, pushRenderFiber);
@@ -337,7 +325,6 @@ const firstNextWithProps = (generatorFunction) => {
 			//子 fiber 状态
 			first: null,
 			last: null,
-			length: 0,
 
 			// 自身 fiber 状态
 			oldIndex: -1,
@@ -570,7 +557,7 @@ const getParentOrParentPreNode = (fiber) => {
 	while (!parentOrPreviousNode) {
 		fiber = fiber.return;
 		if (isHostElementFiber(fiber)) {
-			return [true, fiber];
+			return [true, fiber.stateNode];
 		} else {
 			parentOrPreviousNode = getPreviousNode(fiber);
 		}
@@ -609,11 +596,6 @@ const insertNode = (fiber, preNode, [isParent, referNode]) => {
 	}
 };
 
-function cleanChildFiber(fiber) {
-	fiber.first = null;
-	fiber.last = null;
-	fiber.length = 0;
-}
 function cleanSelfFiber(fiber) {
 	fiber.index = 0;
 	fiber.previous = null;
@@ -640,27 +622,6 @@ const gen = (element, key) => {
 	return fiber;
 };
 
-function linkReturn(returnFiber, fiber) {
-	if (returnFiber) {
-		const index = returnFiber.length || 0;
-
-		fiber.index = index;
-		if (fiber.oldIndex === -1) {
-			fiber.oldIndex = index;
-		}
-		fiber.return = returnFiber;
-
-		if (!returnFiber.first) {
-			returnFiber.first = fiber;
-		} else {
-			returnFiber.last.sibling = fiber;
-			fiber.previous = returnFiber.last;
-		}
-
-		returnFiber.last = fiber;
-		returnFiber.length = index + 1;
-	}
-}
 function toChildren(children) {
 	if (children === void 0) {
 		return children;
@@ -668,53 +629,78 @@ function toChildren(children) {
 	return [].concat(children);
 }
 
-function beginWork(element, returnFiber) {
+function beginWork(returnFiber) {
+	let children = returnFiber.children;
 	const pKey = returnFiber ? `${returnFiber.key}:` : '';
-	const length = returnFiber ? returnFiber.length || 0 : 0;
 
-	if (typeof element === 'string' || typeof element === 'number') {
-		element = jsx('text', { content: element });
-	} else if (Array.isArray(element)) {
-		element = jsx(Fragment, { children: element });
-	} else if (!element || !element.type) {
-		element = jsx('text', { content: '' });
+	if (!Array.isArray(children)) {
+		children = [children];
+	}
+	children = children.map((item) => {
+		if (typeof item === 'string' || typeof item === 'number') {
+			return jsx('text', { content: item });
+		} else if (Array.isArray(item)) {
+			return jsx(Fragment, { children: item });
+		} else if (!item || !item.type) {
+			return jsx('text', { content: '' });
+		} else {
+			return item;
+		}
+	});
+
+	let result = [];
+	for (let index = 0; index < children.length; index++) {
+		let element = children[index];
+
+		let key = pKey + (element.key || '');
+		if (!element.key) {
+			key = key + (element.type.name || element.type) + '_' + index;
+		}
+
+		let fiber = gen(element, key);
+		if (isTextOrCommentElement(element)) {
+			fiber.props = element.props;
+		} else if (isHTMLTag(element.type)) {
+			fiber.props = element.props;
+			fiber.children = toChildren(element.props.children);
+		} else {
+			fiber.props = element.props;
+			const innerRootElement = fiber.next(element.props).value;
+			fiber.children = toChildren(innerRootElement);
+		}
+
+		if (index === 0) {
+			returnFiber.first = fiber;
+		} else {
+			returnFiber.last.sibling = fiber;
+			fiber.previous = returnFiber.last;
+		}
+		fiber.index = index;
+		fiber.return = returnFiber;
+		returnFiber.last = fiber;
+		result.push(fiber);
+	}
+	return result;
+}
+
+function* postOrder(returnFiber) {
+	const fiberList = beginWork(returnFiber);
+
+	for (let fiber of fiberList) {
+		if (!fiber || !fiber.children || !fiber.children.length) {
+			yield fiber;
+		} else {
+			yield* postOrder(fiber);
+		}
 	}
 
-	let fiber = null;
-	let key = pKey + (element.key || '');
-	if (!element.key) {
-		key = key + (element.type.name || element.type) + '_' + length;
-	}
-
-	fiber = gen(element, key);
-	linkReturn(returnFiber, fiber);
-
-	// if (
-	// 	// fiber.reuse === Reuse.skip &&
-	// 	objectEqual(element.props, fiber.props, true)
-	// ) {
-	// 	walkInnerFiber(fiber, (f) => FiberMap.delete(f.key, f));
-	// 	return fiber;
-	// }
-
-	fiber.props = element.props;
-	cleanChildFiber(fiber);
-
-	if (isTextOrCommentElement(element)) {
-		return fiber;
-	}
-
-	if (isHTMLTag(element.type)) {
-		fiber.children = toChildren(element.props.children);
-		return fiber;
-	}
-
-	const innerRootElement = fiber.next(element.props).value;
-	fiber.children = toChildren(innerRootElement);
-	return fiber;
+	yield returnFiber;
 }
 
 function mountFinishedWork(fiber) {
+	if (!fiber.return) {
+		return;
+	}
 	if (isHostElementFiber(fiber)) {
 		const temp = fiber.next(fiber.props).value;
 		if (temp.nodeType !== 3 && temp.nodeType !== 8) {
@@ -725,9 +711,7 @@ function mountFinishedWork(fiber) {
 
 	if (fiber.type === Fragment && fiber.props.target) {
 		fiber.props.target.appendChild(fiber.stateNode);
-	}
-
-	if (fiber.return) {
+	} else {
 		fiber.return.stateNode.appendChild(fiber.stateNode);
 	}
 }
@@ -742,11 +726,12 @@ function updateFinishedWork(fiber) {
 	}
 
 	let childFiber = fiber.first;
+	let preOldIndex = -1;
 	while (childFiber) {
 		if (fiber.StatusLane === UpdatedLane) {
 			if (
 				childFiber.StatusLane === MountedLane ||
-				childFiber.index !== childFiber.oldIndex
+				childFiber.oldIndex < preOldIndex
 			) {
 				const preNode = getPreviousNode(childFiber);
 				const referInfo = getParentOrParentPreNode(fiber);
@@ -760,33 +745,18 @@ function updateFinishedWork(fiber) {
 				fiber.props.target.appendChild(fiber.stateNode);
 			}
 		}
+		preOldIndex = Math.max(childFiber.oldIndex, preOldIndex);
 		childFiber = childFiber.sibling;
 	}
 }
 
-function* postOrder(element, returnFiber) {
-	Promise.resolve().then(() => MemoPoolMap.clear());
-
-	const fiber = beginWork(element, returnFiber);
-	const reuse = fiber.reuse;
-	delete fiber.reuse;
-
-	if (!fiber || !fiber.children || !fiber.children.length) {
-		yield fiber;
-	} else {
-		for (const child of fiber.children) {
-			yield* postOrder(child, fiber);
-		}
-		yield fiber;
-	}
-}
-
-const innerRender = (element, returnFiber) => {
+const innerRender = (returnFiber) => {
 	let result = null;
 	const isUpdate = FiberMap.size > 0;
-	for (const fiber of postOrder(element, returnFiber)) {
-		console.log('FinishedWork', fiber.key, fiber);
-		console.count('FinishedWork');
+
+	for (const fiber of postOrder(returnFiber)) {
+		// console.log('FinishedWork', fiber.key, fiber);
+		// console.count('FinishedWork');
 		if (isUpdate) {
 			updateFinishedWork(fiber);
 		} else {
@@ -813,31 +783,13 @@ const innerRender = (element, returnFiber) => {
 	return result;
 };
 
-const walkInnerFiber = (fiber, fun) => {
-	let cursor = fiber;
-	if (!cursor.first) {
-		return;
-	}
+const walkFiber = (fiber, fun) => {
+	fun(fiber);
 
-	while (cursor) {
-		while (cursor.first) {
-			cursor = cursor.first;
-		}
-
-		while (!cursor.sibling) {
-			fun(cursor);
-			cursor = cursor.return;
-			if (!cursor || cursor === fiber) {
-				return;
-			}
-		}
-
-		fun(cursor);
-		if (!cursor || cursor === fiber) {
-			return;
-		}
-
-		cursor = cursor.sibling;
+	let first = fiber.first;
+	while (first) {
+		walkFiber(first, fun);
+		first = first.sibling;
 	}
 };
 
@@ -845,34 +797,32 @@ function forceRender() {
 	// console.clear();
 	const cursorFix = genCursorFix();
 	FiberMap.clear();
-	let root = null;
-	let reuse = Reuse.dirty;
-	const CountMap = new Map();
+
+	const realRenderFiberSet = new Set([...renderSetFiber]);
 
 	for (const fiber of renderSetFiber) {
-		let parent = fiber;
+		let parent = fiber.return;
 		while (parent) {
-			root = parent;
-
-			const count = (CountMap.get(parent) || 0) + 1;
-			CountMap.set(parent, count);
-
-			parent.reuse = reuse;
-			if (count === renderSetFiber.size) {
-				reuse = Reuse.skip;
+			if (realRenderFiberSet.has(parent)) {
+				realRenderFiberSet.delete(fiber);
+				break;
 			}
-
 			parent = parent.return;
 		}
 	}
+	renderSetFiber.clear();
 
-	walkInnerFiber(root, (f) => {
-		FiberMap.set(f.key, f);
-	});
+	for (const fiber of realRenderFiberSet) {
+		walkFiber(fiber, (f) => {
+			FiberMap.set(f.key, f);
+		});
+		FiberMap.delete(fiber.key);
 
-	cleanSelfFiber(root);
-	cleanChildFiber(root);
-	innerRender(root.children, root);
+		const innerRootElement = fiber.next(fiber.props).value;
+		fiber.children = toChildren(innerRootElement);
+		innerRender(fiber);
+	}
+
 	cursorFix();
 }
 
@@ -889,7 +839,7 @@ const createRoot = (container) => {
 			rootFiber.props = props;
 
 			FiberMap.clear();
-			innerRender(element, rootFiber);
+			innerRender(rootFiber);
 		}
 	};
 };

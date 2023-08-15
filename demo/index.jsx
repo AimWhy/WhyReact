@@ -197,10 +197,16 @@ function Main(props, oldProps, { useState }) {
 			case 'CLEAR':
 				return setState({ data: [], selected: 0 });
 			case 'SWAP_ROWS': {
-				debugger;
 				if (data.length > 8) {
 					return setState({
-						data: [data[0], data[8], ...data.slice(2, 8), data[1], data[9]]
+						data: [
+							data[0],
+							data[1],
+							data[8],
+							...data.slice(3, 8),
+							data[2],
+							data[9]
+						]
 					});
 				}
 
