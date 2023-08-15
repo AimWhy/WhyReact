@@ -18,19 +18,7 @@ export function jsx(type, props = {}, key = null) {
 	return {
 		key,
 		type,
-		props,
-
-		child: null,
-		previous: null,
-		sibling: null,
-		return: null,
-		index: 0,
-
-		stateNode: null,
-
-		get _key() {
-			return genKey(this);
-		}
+		props
 	};
 }
 

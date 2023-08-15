@@ -92,18 +92,18 @@ function App(props, oldProps, { useState, useEffect }) {
 			</Fragment1>
 
 			{!state ? (
-				<Fragment1 key="77">
-					<div>Portal-aa</div>
+				<Fragment1 key="77" target={document.body}>
+					<div>Portal-body</div>
 				</Fragment1>
 			) : (
-				'Portal Origin'
+				<p>Portal inner</p>
 			)}
 
 			<Hello parentChange={setState2} key="hello">
 				{() => <i>i {state2}</i>}
 			</Hello>
 
-			{state ? <World /> : '销毁后的文案'}
+			{state ? <World /> : <div>销毁后的文案</div>}
 
 			{['github!', null, ' aimwhy']}
 		</Fragment1>
