@@ -77,7 +77,7 @@ const buildData = (count) => {
 	return data;
 };
 
-const initialState = { data: buildData(10), selected: 0 };
+const initialState = { data: buildData(10) };
 
 function Row(props) {
 	let onSelect = () => {
@@ -89,49 +89,16 @@ function Row(props) {
 		const { item, dispatch } = props;
 		dispatch({ type: 'REMOVE', id: item.id });
 	};
-	const { selected, item } = props;
+	const { item } = props;
 
 	return (
-		<tr className={selected ? 'danger' : ''}>
+		<tr>
 			<td className="col-md-1">{item.id}</td>
 			<td className="col-md-4">
 				<a onClick={onSelect}>{item.label}</a>
-				<div>
+				<div className="wanghongying">
 					<span>
 						<i>33333</i>
-						<span>
-							<span>
-								<span>
-									<span>
-										<i>sdfsf</i>
-										<span>
-											<i>33333</i>
-											<span>
-												<span>
-													<span>
-														<span>
-															<i>sdfsf</i>
-														</span>
-													</span>
-												</span>
-											</span>
-										</span>
-										<span>
-											<i>33333</i>
-											<span>
-												<span>
-													<span>
-														<span>
-															<i>sdfsf</i>
-														</span>
-													</span>
-												</span>
-											</span>
-										</span>
-									</span>
-								</span>
-							</span>
-						</span>
 					</span>
 				</div>
 			</td>
@@ -208,61 +175,68 @@ function Jumbotron(props) {
 	);
 }
 
+let outerDispatch = null;
 function Main(props, oldProps, { useState }) {
 	let [state, setState] = useState(initialState);
+	let dispatch =
+		outerDispatch ||
+		function (setState, action) {
+			switch (action.type) {
+				case 'RUN':
+					return setState({ data: buildData(1000) });
+				case 'RUN_LOTS':
+					return setState({ data: buildData(10000) });
+				case 'ADD':
+					return setState(({ data }) => ({
+						data: data.concat(buildData(1000))
+					}));
+				case 'UPDATE': {
+					return setState(({ data }) => {
+						const newData = data.slice(0);
 
-	let dispatch = (action) => {
-		const { data } = state;
+						for (let i = 0; i < newData.length; i += 10) {
+							const r = newData[i];
 
-		switch (action.type) {
-			case 'RUN':
-				return setState({ data: buildData(1000), selected: 0 });
-			case 'RUN_LOTS':
-				return setState({ data: buildData(10000), selected: 0 });
-			case 'ADD':
-				return setState({ data: data.concat(buildData(1000)) });
-			case 'UPDATE': {
-				const newData = data.slice(0);
+							newData[i] = { id: r.id, label: r.label + ' !!!' };
+						}
 
-				for (let i = 0; i < newData.length; i += 10) {
-					const r = newData[i];
-
-					newData[i] = { id: r.id, label: r.label + ' !!!' };
-				}
-
-				return setState({ data: newData });
-			}
-			case 'CLEAR':
-				return setState({ data: [], selected: 0 });
-			case 'SWAP_ROWS': {
-				if (data.length > 8) {
-					return setState({
-						data: [
-							data[0],
-							data[1],
-							data[8],
-							...data.slice(3, 8),
-							data[2],
-							data[9]
-						]
+						return { data: newData };
 					});
 				}
-
-				return;
+				case 'CLEAR':
+					return setState({ data: [] });
+				case 'SWAP_ROWS': {
+					return setState(({ data }) => {
+						if (data.length > 8) {
+							return {
+								data: [
+									data[0],
+									data[1],
+									data[8],
+									...data.slice(3, 8),
+									data[2],
+									data[9]
+								]
+							};
+						}
+						return { data };
+					});
+				}
+				case 'REMOVE': {
+					return setState(({ data }) => {
+						const idx = data.findIndex((d) => d.id === action.id);
+						return {
+							data: [...data.slice(0, idx), ...data.slice(idx + 1)]
+						};
+					});
+				}
+				case 'SELECT':
+					return;
 			}
-			case 'REMOVE': {
-				const idx = data.findIndex((d) => d.id === action.id);
+		}.bind(null, setState);
+	outerDispatch = dispatch;
 
-				return setState({
-					data: [...data.slice(0, idx), ...data.slice(idx + 1)]
-				});
-			}
-			case 'SELECT':
-				return setState({ selected: action.id });
-		}
-	};
-
-	const { data, selected } = state;
+	const { data } = state;
 
 	return (
 		<div className="container">
@@ -270,12 +244,7 @@ function Main(props, oldProps, { useState }) {
 			<table className="table table-hover table-striped test-data">
 				<tbody>
 					{data.map((item) => (
-						<Row
-							key={item.id}
-							item={item}
-							selected={selected === item.id}
-							dispatch={dispatch}
-						/>
+						<Row key={item.id} item={item} dispatch={dispatch} />
 					))}
 				</tbody>
 			</table>

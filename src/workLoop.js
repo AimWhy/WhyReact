@@ -1,4 +1,4 @@
-import { genCursorFix } from './util';
+import { genCursorFix, objectEqual, nextTickClearEqualMemo } from './util';
 import { queueMacrotask, queueMicrotaskOnce } from './taskQueue';
 import { isHTMLTag, isTextOrCommentTag, isHostElementFiber } from './buildIn';
 import { generator, FiberStatus } from './generator';
@@ -88,6 +88,11 @@ function cleanSelfFiber(fiber) {
 	fiber.return = null;
 }
 
+function cleanChildFiber(fiber) {
+	fiber.first = null;
+	fiber.last = null;
+}
+
 const FiberMap = new Map();
 
 export const gen = (element, key) => {
@@ -98,10 +103,10 @@ export const gen = (element, key) => {
 		cleanSelfFiber(fiber);
 	} else {
 		fiber = generator(pushRenderFiber, element);
+		fiber.reuse = false;
 	}
 
 	fiber.key = key;
-	fiber.props = element.props;
 	return fiber;
 };
 
@@ -141,13 +146,32 @@ function beginWork(returnFiber) {
 		}
 
 		let fiber = gen(element, key);
-		if (isTextOrCommentTag(element.type)) {
-			fiber.children = null;
-		} else if (isHTMLTag(element.type)) {
-			fiber.children = toChildren(fiber.props.children);
+
+		if (fiber.reuse === false) {
+			cleanChildFiber(fiber);
 		} else {
-			const innerRootElement = fiber.next(fiber.props).value;
-			fiber.children = toChildren(innerRootElement);
+			if (objectEqual(fiber.props, element.props, true)) {
+				fiber.reuse = true;
+				walkFiber(fiber, (f) => {
+					fiber.oldIndex = fiber.index;
+					FiberMap.delete(f.key);
+				});
+				// console.log('reuse:' + fiber.key, element);
+			} else {
+				cleanChildFiber(fiber);
+			}
+		}
+		fiber.props = element.props;
+
+		if (fiber.reuse !== true) {
+			if (isTextOrCommentTag(element.type)) {
+				fiber.children = null;
+			} else if (isHTMLTag(element.type)) {
+				fiber.children = toChildren(fiber.props.children);
+			} else {
+				const innerRootElement = fiber.next(fiber.props).value;
+				fiber.children = toChildren(innerRootElement);
+			}
 		}
 
 		if (index === 0) {
@@ -168,7 +192,7 @@ function* postOrder(returnFiber) {
 	const fiberList = beginWork(returnFiber);
 
 	for (let fiber of fiberList) {
-		if (!fiber.children || !fiber.children.length) {
+		if (!fiber.children || !fiber.children.length || fiber.reuse === true) {
 			yield fiber;
 		} else {
 			yield* postOrder(fiber);
@@ -202,17 +226,19 @@ function updateFinishedWork(fiber) {
 		fiber.stateNode = fiber.next(fiber.props).value;
 	}
 
-	if (!fiber.first) {
+	if (!fiber.first || fiber.reuse === true) {
 		return;
 	}
 
 	let childFiber = fiber.first;
 	let preOldIndex = -1;
 	while (childFiber) {
-		if (fiber.Status === FiberStatus.Updated) {
+		if (childFiber.type === Fragment && childFiber.props.target) {
+			// reuse 清空跳过了
+		} else if (fiber.Status === FiberStatus.Updated) {
 			if (
 				childFiber.Status === FiberStatus.Mounted ||
-				childFiber.oldIndex < preOldIndex
+				childFiber.oldIndex <= preOldIndex
 			) {
 				const preNode = getPreviousNode(childFiber);
 				const referInfo = getParentOrParentPreNode(fiber);
@@ -234,6 +260,7 @@ function updateFinishedWork(fiber) {
 export const innerRender = (returnFiber) => {
 	let result = null;
 	const isUpdate = FiberMap.size > 0;
+	nextTickClearEqualMemo();
 
 	for (const fiber of postOrder(returnFiber)) {
 		// console.log('FinishedWork', fiber.key, fiber);
@@ -243,7 +270,7 @@ export const innerRender = (returnFiber) => {
 		} else {
 			mountFinishedWork(fiber);
 		}
-
+		delete fiber.reuse;
 		queueMacrotask(fiber.flushEffects);
 		result = fiber;
 	}
@@ -251,9 +278,6 @@ export const innerRender = (returnFiber) => {
 	if (FiberMap.size) {
 		// eslint-disable-next-line @typescript-eslint/no-unused-vars
 		for (const [dKey, dFiber] of FiberMap) {
-			if (dFiber.return && dFiber.return.first === dFiber) {
-				dFiber.return.first = dFiber.return.last = null;
-			}
 			// console.log('unmounted key', dKey);
 			queueMacrotask(() => {
 				dFiber.flushCleanEffects(true);
@@ -284,22 +308,33 @@ function forceRender() {
 	const cursorFix = genCursorFix();
 	const realRenderFiberSet = new Set([...renderSetFiber]);
 
+	const deleteFiber = new Set();
 	for (const fiber of renderSetFiber) {
 		let parent = fiber.return;
 		while (parent) {
 			if (realRenderFiberSet.has(parent)) {
 				realRenderFiberSet.delete(fiber);
+				deleteFiber.add(fiber);
 				break;
 			}
 			parent = parent.return;
 		}
 	}
+
+	for (const fiber of deleteFiber) {
+		let parent = fiber;
+		while (!realRenderFiberSet.has(parent)) {
+			parent.reuse = false;
+			parent = parent.return;
+		}
+	}
+
 	renderSetFiber.clear();
 
 	for (const fiber of realRenderFiberSet) {
 		FiberMap.clear();
 		walkFiber(fiber, (f) => FiberMap.set(f.key, f));
-		console.log(FiberMap);
+		// console.log(FiberMap);
 		const innerRootElement = fiber.next(fiber.props).value;
 		fiber.children = toChildren(innerRootElement);
 		innerRender(fiber);

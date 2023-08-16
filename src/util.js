@@ -17,7 +17,16 @@ export const Enum = (baseEnum) => {
 	});
 };
 
-export const shallowEqual = (object1, object2) => {
+const MemoPoolMap = new Map();
+
+const resolvedPromise = Promise.resolve();
+export const nextTickClearEqualMemo = () => {
+	resolvedPromise.then(() => {
+		MemoPoolMap.clear();
+	});
+};
+
+export const objectEqual = (object1, object2, isDeep) => {
 	if (object1 === object2) {
 		return true;
 	}
@@ -39,8 +48,30 @@ export const shallowEqual = (object1, object2) => {
 	}
 
 	for (const key of keys1) {
-		if (object1[key] !== object2[key]) {
-			return false;
+		const o1 = object1[key];
+		const o2 = object2[key];
+
+		if (isDeep) {
+			const memo = MemoPoolMap.get(o1);
+
+			if (memo && memo[0] === o2) {
+				if (!memo[1]) {
+					return false;
+				}
+			} else {
+				const isEqual = objectEqual(o1, o2, true);
+				if (!isEqual) {
+					return false;
+				}
+
+				if (o1 && o2 && typeof o1 === 'object' && typeof o2 === 'object') {
+					MemoPoolMap.set(o1, [o2, isEqual]);
+				}
+			}
+		} else {
+			if (o1 !== o2) {
+				return false;
+			}
 		}
 	}
 

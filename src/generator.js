@@ -1,4 +1,4 @@
-import { shallowEqual, Enum } from './util';
+import { objectEqual, Enum } from './util';
 import { buildInMap } from './buildIn';
 
 export const FiberStatus = Enum({
@@ -107,7 +107,7 @@ function* withStateFun(func, pushRenderFiber) {
 					effect.mountDep = true;
 				}
 			} else {
-				if (!shallowEqual(deps, oldDeps)) {
+				if (!objectEqual(deps, oldDeps)) {
 					effects.push(effect);
 				}
 			}
