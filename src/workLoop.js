@@ -59,20 +59,20 @@ const insertNode = (fiber, preNode, [isParent, referNode]) => {
 		}
 	} else {
 		(function fn(temp) {
-			let first = temp.first;
-			while (first) {
-				if (isHostElementFiber(first)) {
+			let last = temp.last;
+			while (last) {
+				if (isHostElementFiber(last)) {
 					if (preNode) {
-						preNode.after(first.stateNode);
+						preNode.after(last.stateNode);
 					} else if (isParent) {
-						referNode.prepend(first.stateNode);
+						referNode.prepend(last.stateNode);
 					} else {
-						referNode.after(first.stateNode);
+						referNode.after(last.stateNode);
 					}
 				} else {
-					fn(first);
+					fn(last);
 				}
-				first = first.sibling;
+				last = last.previous;
 			}
 		})(fiber);
 	}
