@@ -4,12 +4,35 @@
 	(global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.WhyReact = {}));
 })(this, (function (exports) { 'use strict';
 
-	const makeMap$1 = (list) => {
+	const makeMap = (list) => {
 		const memoSet = new Set(list);
 		return (val) => memoSet.has(val);
 	};
 
-	const shallowEqual = (object1, object2) => {
+	const Enum = (baseEnum) => {
+		return new Proxy(baseEnum, {
+			get(target, name) {
+				if (!Object.prototype.hasOwnProperty.call(baseEnum, name)) {
+					throw new Error(`"${name}" value does not exist in the enum`);
+				}
+				return baseEnum[name];
+			},
+			set() {
+				throw new Error('Cannot add a new value to the enum');
+			}
+		});
+	};
+
+	const MemoPoolMap = new Map();
+
+	const resolvedPromise$1 = Promise.resolve();
+	const nextTickClearEqualMemo = () => {
+		resolvedPromise$1.then(() => {
+			MemoPoolMap.clear();
+		});
+	};
+
+	const objectEqual = (object1, object2, isDeep) => {
 		if (object1 === object2) {
 			return true;
 		}
@@ -31,8 +54,30 @@
 		}
 
 		for (const key of keys1) {
-			if (object1[key] !== object2[key]) {
-				return false;
+			const o1 = object1[key];
+			const o2 = object2[key];
+
+			if (isDeep) {
+				const memo = MemoPoolMap.get(o1);
+
+				if (memo && memo[0] === o2) {
+					if (!memo[1]) {
+						return false;
+					}
+				} else {
+					const isEqual = objectEqual(o1, o2, true);
+					if (!isEqual) {
+						return false;
+					}
+
+					if (o1 && o2 && typeof o1 === 'object' && typeof o2 === 'object') {
+						MemoPoolMap.set(o1, [o2, isEqual]);
+					}
+				}
+			} else {
+				if (o1 !== o2) {
+					return false;
+				}
 			}
 		}
 
@@ -49,7 +94,22 @@
 		'readonly'
 	];
 
-	makeMap$1(specialBooleanAttrs);
+	const isSpecialBooleanAttr = makeMap(specialBooleanAttrs);
+
+	const optionsModifierRE = /(?:Once|Passive|Capture)$/;
+	const parseEventName = (name) => {
+		let options = void 0;
+		if (optionsModifierRE.test(name)) {
+			options = {};
+			let m;
+			while ((m = name.match(optionsModifierRE))) {
+				name = name.slice(0, name.length - m[0].length);
+				options[m[0].toLowerCase()] = true;
+			}
+		}
+		const event = name.slice(2).toLowerCase();
+		return [event, options];
+	};
 
 	const genCursorFix = () => {
 		const focusedElement = document.activeElement;
@@ -62,6 +122,69 @@
 			focusedElement.selectionStart = start;
 			focusedElement.selectionEnd = end;
 		};
+	};
+
+	const resolvedPromise = Promise.resolve();
+	const queueMicrotask =
+		window.queueMicrotask ||
+		((callback) => {
+			if (typeof callback !== 'function') {
+				throw new TypeError('The argument to queueMicrotask must be a function.');
+			}
+
+			resolvedPromise.then(callback);
+		});
+
+	const uniqueSet = new Set();
+	const queueMicrotaskOnce = (func) => {
+		if (!uniqueSet.has(func)) {
+			uniqueSet.add(func);
+			queueMicrotask(() => {
+				func();
+				uniqueSet.delete(func);
+			});
+		}
+	};
+
+	let isMessageLoopRunning = false;
+	const scheduledCallbackQueue = [];
+	const frameYieldMs = 8;
+
+	const performWork = () => {
+		console.log('performWork len:' + scheduledCallbackQueue.length);
+		const startTime = performance.now();
+
+		if (scheduledCallbackQueue.length) {
+			try {
+				let timeElapsed = 0;
+
+				while (timeElapsed < frameYieldMs && scheduledCallbackQueue.length) {
+					const work = scheduledCallbackQueue.shift();
+					work();
+					timeElapsed = performance.now() - startTime;
+				}
+			} finally {
+				if (scheduledCallbackQueue.length) {
+					schedulePerform();
+				} else {
+					isMessageLoopRunning = false;
+				}
+			}
+		} else {
+			isMessageLoopRunning = false;
+		}
+	};
+
+	const channel = new MessageChannel();
+	channel.port1.onmessage = performWork;
+	const schedulePerform = () => channel.port2.postMessage(null);
+
+	const queueMacrotask = (callback) => {
+		scheduledCallbackQueue.push(callback);
+		if (!isMessageLoopRunning) {
+			isMessageLoopRunning = true;
+			schedulePerform();
+		}
 	};
 
 	function onCompositionStart(e) {
@@ -319,64 +442,12 @@
 
 	const isTextOrCommentTag = makeMap(['text', 'comment']);
 
-	new Set(Object.values(buildIn));
+	const HostElementSet = new Set(Object.values(buildIn));
+	const isHostElementFiber = (fiber) => HostElementSet.has(fiber.type);
 
 	const buildInMap = buildIn;
 
-	const resolvedPromise = Promise.resolve();
-	const queueMicrotask =
-		window.queueMicrotask ||
-		((callback) => {
-			if (typeof callback !== 'function') {
-				throw new TypeError('The argument to queueMicrotask must be a function.');
-			}
-
-			resolvedPromise.then(callback);
-		});
-
-	const uniqueSet = new Set();
-	const queueMicrotaskOnce = (func) => {
-		if (!uniqueSet.has(func)) {
-			uniqueSet.add(func);
-			queueMicrotask(() => {
-				func();
-				uniqueSet.delete(func);
-			});
-		}
-	};
-
-	let isMessageLoopRunning = false;
-	const scheduledCallbackQueue = [];
-	const performWork = () => {
-		if (scheduledCallbackQueue.length) {
-			try {
-				const work = scheduledCallbackQueue.shift();
-				work();
-			} finally {
-				if (scheduledCallbackQueue.length) {
-					schedulePerform();
-				} else {
-					isMessageLoopRunning = false;
-				}
-			}
-		} else {
-			isMessageLoopRunning = false;
-		}
-	};
-
-	const channel = new MessageChannel();
-	channel.port1.onmessage = performWork;
-	const schedulePerform = () => channel.port2.postMessage(null);
-
-	const queueMacrotask = (callback) => {
-		scheduledCallbackQueue.push(callback);
-		if (!isMessageLoopRunning) {
-			isMessageLoopRunning = true;
-			schedulePerform();
-		}
-	};
-
-	const FiberStatus$1 = Enum({
+	const FiberStatus = Enum({
 		Mounted: 'Mounted',
 		Updated: 'Updated'
 	});
@@ -405,7 +476,7 @@
 				previous: null,
 				sibling: null,
 				return: null,
-				Status: FiberStatus$1.Mounted,
+				Status: FiberStatus.Mounted,
 
 				// 继承 Element 数据
 				type: func,
@@ -477,12 +548,12 @@
 				effects.push(effect);
 			} else if (Array.isArray(deps)) {
 				if (!deps.length) {
-					if (self.Status === FiberStatus$1.Mounted) {
+					if (self.Status === FiberStatus.Mounted) {
 						effects.push(effect);
 						effect.mountDep = true;
 					}
 				} else {
-					if (!shallowEqual(deps, oldDeps)) {
+					if (!objectEqual(deps, oldDeps)) {
 						effects.push(effect);
 					}
 				}
@@ -520,7 +591,7 @@
 					cleanEffects.push(clean);
 				}
 			}
-			self.Status = FiberStatus$1.Updated;
+			self.Status = FiberStatus.Updated;
 		};
 
 		self.flushCleanEffects = function flushCleanEffects(isUnmounted) {
@@ -591,7 +662,7 @@
 		return { key, type, props };
 	}
 
-	function Fragment$1(props) {
+	function Fragment(props) {
 		return props.children;
 	}
 
@@ -650,20 +721,20 @@
 			}
 		} else {
 			(function fn(temp) {
-				let first = temp.first;
-				while (first) {
-					if (isHostElementFiber(first)) {
+				let last = temp.last;
+				while (last) {
+					if (isHostElementFiber(last)) {
 						if (preNode) {
-							preNode.after(first.stateNode);
+							preNode.after(last.stateNode);
 						} else if (isParent) {
-							referNode.prepend(first.stateNode);
+							referNode.prepend(last.stateNode);
 						} else {
-							referNode.after(first.stateNode);
+							referNode.after(last.stateNode);
 						}
 					} else {
-						fn(first);
+						fn(last);
 					}
-					first = first.sibling;
+					last = last.previous;
 				}
 			})(fiber);
 		}
@@ -679,9 +750,14 @@
 		fiber.return = null;
 	}
 
+	function cleanChildFiber(fiber) {
+		fiber.first = null;
+		fiber.last = null;
+	}
+
 	const FiberMap = new Map();
 
-	const gen$1 = (element, key) => {
+	const gen = (element, key) => {
 		let fiber = null;
 		if (key !== void 0 && FiberMap.has(key)) {
 			fiber = FiberMap.get(key);
@@ -689,10 +765,10 @@
 			cleanSelfFiber(fiber);
 		} else {
 			fiber = generator(pushRenderFiber, element);
+			fiber.reuse = false;
 		}
 
 		fiber.key = key;
-		fiber.props = element.props;
 		return fiber;
 	};
 
@@ -731,14 +807,33 @@
 				key = key + (element.type.name || element.type) + '_' + index;
 			}
 
-			let fiber = gen$1(element, key);
-			if (isTextOrCommentTag(element.type)) {
-				fiber.children = null;
-			} else if (isHTMLTag(element.type)) {
-				fiber.children = toChildren(fiber.props.children);
+			let fiber = gen(element, key);
+
+			if (fiber.reuse === false) {
+				cleanChildFiber(fiber);
 			} else {
-				const innerRootElement = fiber.next(fiber.props).value;
-				fiber.children = toChildren(innerRootElement);
+				if (objectEqual(fiber.props, element.props, true)) {
+					fiber.reuse = true;
+					walkFiber(fiber, (f) => {
+						fiber.oldIndex = fiber.index;
+						FiberMap.delete(f.key);
+					});
+					// console.log('reuse:' + fiber.key, element);
+				} else {
+					cleanChildFiber(fiber);
+				}
+			}
+			fiber.props = element.props;
+
+			if (fiber.reuse !== true) {
+				if (isTextOrCommentTag(element.type)) {
+					fiber.children = null;
+				} else if (isHTMLTag(element.type)) {
+					fiber.children = toChildren(fiber.props.children);
+				} else {
+					const innerRootElement = fiber.next(fiber.props).value;
+					fiber.children = toChildren(innerRootElement);
+				}
 			}
 
 			if (index === 0) {
@@ -759,7 +854,7 @@
 		const fiberList = beginWork(returnFiber);
 
 		for (let fiber of fiberList) {
-			if (!fiber.children || !fiber.children.length) {
+			if (!fiber.children || !fiber.children.length || fiber.reuse === true) {
 				yield fiber;
 			} else {
 				yield* postOrder(fiber);
@@ -793,17 +888,17 @@
 			fiber.stateNode = fiber.next(fiber.props).value;
 		}
 
-		if (!fiber.first) {
+		if (!fiber.first || fiber.reuse === true) {
 			return;
 		}
 
 		let childFiber = fiber.first;
 		let preOldIndex = -1;
 		while (childFiber) {
-			if (fiber.Status === FiberStatus.Updated) {
+			if (childFiber.type === Fragment && childFiber.props.target) ; else if (fiber.Status === FiberStatus.Updated) {
 				if (
 					childFiber.Status === FiberStatus.Mounted ||
-					childFiber.oldIndex < preOldIndex
+					childFiber.oldIndex <= preOldIndex
 				) {
 					const preNode = getPreviousNode(childFiber);
 					const referInfo = getParentOrParentPreNode(fiber);
@@ -825,6 +920,7 @@
 	const innerRender = (returnFiber) => {
 		let result = null;
 		const isUpdate = FiberMap.size > 0;
+		nextTickClearEqualMemo();
 
 		for (const fiber of postOrder(returnFiber)) {
 			// console.log('FinishedWork', fiber.key, fiber);
@@ -834,31 +930,36 @@
 			} else {
 				mountFinishedWork(fiber);
 			}
-
+			delete fiber.reuse;
 			queueMacrotask(fiber.flushEffects);
 			result = fiber;
 		}
 
 		if (FiberMap.size) {
-			const unmounted = [...FiberMap.values()];
-			queueMacrotask(() => {
-				for (const dFiber of unmounted) {
-					console.log('unmounted key', dFiber.key);
+			// eslint-disable-next-line @typescript-eslint/no-unused-vars
+			for (const [dKey, dFiber] of FiberMap) {
+				// console.log('unmounted key', dKey);
+				queueMacrotask(() => {
 					dFiber.flushCleanEffects(true);
-				}
-			});
+				});
+			}
 		}
 
 		return result;
 	};
 
 	const walkFiber = (fiber, fun) => {
-		fun(fiber);
-
-		let first = fiber.first;
-		while (first) {
-			walkFiber(first, fun);
-			first = first.sibling;
+		const queue = [fiber.first];
+		// dom 删除时从上到下分层来
+		while (queue.length) {
+			let first = queue.shift();
+			while (first) {
+				fun(first);
+				if (first.first) {
+					queue.push(first.first);
+				}
+				first = first.sibling;
+			}
 		}
 	};
 
@@ -867,22 +968,33 @@
 		const cursorFix = genCursorFix();
 		const realRenderFiberSet = new Set([...renderSetFiber]);
 
+		const deleteFiber = new Set();
 		for (const fiber of renderSetFiber) {
 			let parent = fiber.return;
 			while (parent) {
 				if (realRenderFiberSet.has(parent)) {
 					realRenderFiberSet.delete(fiber);
+					deleteFiber.add(fiber);
 					break;
 				}
 				parent = parent.return;
 			}
 		}
+
+		for (const fiber of deleteFiber) {
+			let parent = fiber;
+			while (!realRenderFiberSet.has(parent)) {
+				parent.reuse = false;
+				parent = parent.return;
+			}
+		}
+
 		renderSetFiber.clear();
 
 		for (const fiber of realRenderFiberSet) {
+			FiberMap.clear();
 			walkFiber(fiber, (f) => FiberMap.set(f.key, f));
-			FiberMap.delete(fiber.key);
-
+			// console.log(FiberMap);
 			const innerRootElement = fiber.next(fiber.props).value;
 			fiber.children = toChildren(innerRootElement);
 			innerRender(fiber);
@@ -906,6 +1018,7 @@
 				);
 
 				const rootFiber = gen(rootElement, key);
+				rootFiber.props = rootElement.props;
 				rootFiber.stateNode = container;
 				rootFiber.children = rootElement.props.children;
 
@@ -914,7 +1027,7 @@
 		};
 	};
 
-	exports.Fragment = Fragment$1;
+	exports.Fragment = Fragment;
 	exports.createRoot = createRoot;
 	exports.jsx = jsx;
 
