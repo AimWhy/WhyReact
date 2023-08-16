@@ -1,4 +1,4 @@
-const { createRoot, Fragment } = window.WhyReact;
+import { createRoot } from '../src/index';
 
 const random = (max) => Math.round(Math.random() * 1000) % max;
 
@@ -96,6 +96,44 @@ function Row(props) {
 			<td className="col-md-1">{item.id}</td>
 			<td className="col-md-4">
 				<a onClick={onSelect}>{item.label}</a>
+				<div>
+					<span>
+						<i>33333</i>
+						<span>
+							<span>
+								<span>
+									<span>
+										<i>sdfsf</i>
+										<span>
+											<i>33333</i>
+											<span>
+												<span>
+													<span>
+														<span>
+															<i>sdfsf</i>
+														</span>
+													</span>
+												</span>
+											</span>
+										</span>
+										<span>
+											<i>33333</i>
+											<span>
+												<span>
+													<span>
+														<span>
+															<i>sdfsf</i>
+														</span>
+													</span>
+												</span>
+											</span>
+										</span>
+									</span>
+								</span>
+							</span>
+						</span>
+					</span>
+				</div>
 			</td>
 			<td className="col-md-1">
 				<a onClick={onRemove}>删除</a>
@@ -180,7 +218,7 @@ function Main(props, oldProps, { useState }) {
 			case 'RUN':
 				return setState({ data: buildData(1000), selected: 0 });
 			case 'RUN_LOTS':
-				return setState({ data: buildData(100000), selected: 0 });
+				return setState({ data: buildData(10000), selected: 0 });
 			case 'ADD':
 				return setState({ data: data.concat(buildData(1000)) });
 			case 'UPDATE': {

@@ -1,16 +1,12 @@
 const resolvedPromise = Promise.resolve();
-export const queueMicrotask =
+const queueMicrotask =
 	window.queueMicrotask ||
 	((callback) => {
 		if (typeof callback !== 'function') {
 			throw new TypeError('The argument to queueMicrotask must be a function.');
 		}
 
-		resolvedPromise.then(callback).catch((error) =>
-			setTimeout(() => {
-				throw error;
-			}, 0)
-		);
+		resolvedPromise.then(callback);
 	});
 
 const uniqueSet = new Set();
@@ -26,11 +22,21 @@ export const queueMicrotaskOnce = (func) => {
 
 let isMessageLoopRunning = false;
 const scheduledCallbackQueue = [];
+const frameYieldMs = 8;
+
 const performWork = () => {
+	console.log('performWork len:' + scheduledCallbackQueue.length);
+	const startTime = performance.now();
+
 	if (scheduledCallbackQueue.length) {
 		try {
-			const work = scheduledCallbackQueue.shift();
-			work();
+			let timeElapsed = 0;
+
+			while (timeElapsed < frameYieldMs && scheduledCallbackQueue.length) {
+				const work = scheduledCallbackQueue.shift();
+				work();
+				timeElapsed = performance.now() - startTime;
+			}
 		} finally {
 			if (scheduledCallbackQueue.length) {
 				schedulePerform();

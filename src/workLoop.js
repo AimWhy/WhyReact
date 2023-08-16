@@ -1,225 +1,310 @@
-import { isHTMLTag, genCursorFix } from './util';
+import { genCursorFix } from './util';
 import { queueMacrotask, queueMicrotaskOnce } from './taskQueue';
-import { isTextOrCommentElement } from './buildIn';
-import {
-	UnMountedLane,
-	MountedLane,
-	GeneratorPool,
-	generator
-} from './generator';
-import { jsx } from './jsx-runtime';
+import { isHTMLTag, isTextOrCommentTag, isHostElementFiber } from './buildIn';
+import { generator, FiberStatus } from './generator';
+import { jsx, Fragment } from './jsx-runtime';
 
-function InnerFragment() {
-	return document.createDocumentFragment();
-}
-Object.defineProperty(InnerFragment, 'name', { value: 'F' });
-
-const wrapInnerFragment = (children, key) => {
-	children = [
-		jsx('comment', { content: '^' + key }),
-		...[children].flat(5),
-		jsx('comment', { content: key + `$` })
-	];
-
-	return jsx(InnerFragment, { children });
-};
-
-const renderList = new Set();
-const pushRenderElement = (generatorObj) => {
-	renderList.add(generatorObj);
+const renderSetFiber = new Set();
+const pushRenderFiber = (generatorObj) => {
+	renderSetFiber.add(generatorObj);
 	queueMicrotaskOnce(forceRender);
 };
 
-const insertNode = () => {};
-
-export const gen = (element) => generator(pushRenderElement, element);
-
-let isMounted = true;
-function beginWork(element) {
-	if (!element.stateNode) {
-		element.stateNode = document.createDocumentFragment();
-	} else if (__DEV__) {
-		console.log('%c 更新的根节点"', 'color:#0f0;', element);
-	}
-}
-
-function finishedWork(element) {
-	if (__DEV__) {
-		console.log('finishedWork', element);
-	}
-	if (isTextOrCommentElement(element)) {
-		element.stateNode = gen(element).next(element.props).value;
-	} else if (isHTMLTag(element.type) || element.type === InnerFragment) {
-		const temp = gen(element).next(element.props).value;
-		temp.appendChild(element.stateNode);
-		element.stateNode = temp;
-	}
-
-	if (element.type === InnerFragment && element.props.target) {
-		element.props.target.appendChild(element.stateNode);
-	}
-
-	if (!element.return) {
-		return;
-	}
-
-	if (isMounted || gen(element.return).StatusLane & MountedLane) {
-		element.return.stateNode.appendChild(element.stateNode);
-		return;
-	}
-
-	if (gen(element).StatusLane & MountedLane) {
-		insertNode(element.return, element);
-		return;
-	}
-}
-
-function* postOrder(element) {
-	beginWork(element);
-
-	if (isTextOrCommentElement(element)) {
-		yield element;
-	} else if (isHTMLTag(element.type) || element.type === InnerFragment) {
-		let tempChildren = element.props.children;
-		if (tempChildren) {
-			if (!Array.isArray(tempChildren)) {
-				tempChildren = [tempChildren];
-			}
-
-			if (tempChildren.length) {
-				let index = 0;
-				let prevSibling = null;
-
-				for (const tempChild of tempChildren) {
-					const child = toValidElement(tempChild);
-					child.index = index;
-					child.return = element;
-
-					index = index + 1;
-					if (!prevSibling) {
-						element.child = child;
-					} else {
-						prevSibling.sibling = child;
-						child.previous = prevSibling;
-					}
-					prevSibling = child;
-					yield* postOrder(child);
-				}
-			}
+function* lastPositionFiber(fiber) {
+	while (fiber) {
+		if (fiber.type !== Fragment || !fiber.props.target) {
+			yield fiber;
+			yield* lastPositionFiber(fiber.last);
 		}
+		fiber = fiber.previous;
+	}
+}
 
-		yield element;
+function getPreviousNode(fiber) {
+	const previous = fiber.previous;
+	for (const temp of lastPositionFiber(previous)) {
+		if (isHostElementFiber(temp)) {
+			return temp.stateNode;
+		}
+	}
+}
+
+const getParentOrParentPreNode = (fiber) => {
+	if (isHostElementFiber(fiber)) {
+		return [true, fiber.stateNode];
+	}
+
+	let parentOrPreviousNode = getPreviousNode(fiber);
+
+	while (!parentOrPreviousNode) {
+		fiber = fiber.return;
+		if (isHostElementFiber(fiber)) {
+			return [true, fiber.stateNode];
+		} else {
+			parentOrPreviousNode = getPreviousNode(fiber);
+		}
+	}
+
+	return [false, parentOrPreviousNode];
+};
+
+const insertNode = (fiber, preNode, [isParent, referNode]) => {
+	if (fiber.Status === FiberStatus.Mounted || isHostElementFiber(fiber)) {
+		if (preNode) {
+			preNode.after(fiber.stateNode);
+		} else if (isParent) {
+			referNode.prepend(fiber.stateNode);
+		} else {
+			referNode.after(fiber.stateNode);
+		}
 	} else {
-		console.log(element);
-		const tempInnerRoot = gen(element).next(element.props).value;
+		(function fn(temp) {
+			let first = temp.first;
+			while (first) {
+				if (isHostElementFiber(first)) {
+					if (preNode) {
+						preNode.after(first.stateNode);
+					} else if (isParent) {
+						referNode.prepend(first.stateNode);
+					} else {
+						referNode.after(first.stateNode);
+					}
+				} else {
+					fn(first);
+				}
+				first = first.sibling;
+			}
+		})(fiber);
+	}
+};
 
-		const innerRootElement = wrapInnerFragment(tempInnerRoot, element._key);
+function cleanSelfFiber(fiber) {
+	fiber.oldIndex = fiber.index;
+	fiber.Status = FiberStatus.Updated;
 
-		element.child = innerRootElement;
-		innerRootElement.return = element;
-		innerRootElement.index = 0;
+	fiber.index = 0;
+	fiber.previous = null;
+	fiber.sibling = null;
+	fiber.return = null;
+}
 
-		yield* postOrder(innerRootElement);
+const FiberMap = new Map();
 
-		yield element;
+export const gen = (element, key) => {
+	let fiber = null;
+	if (key !== void 0 && FiberMap.has(key)) {
+		fiber = FiberMap.get(key);
+		FiberMap.delete(key);
+		cleanSelfFiber(fiber);
+	} else {
+		fiber = generator(pushRenderFiber, element);
+	}
+
+	fiber.key = key;
+	fiber.props = element.props;
+	return fiber;
+};
+
+function toChildren(children) {
+	if (children === void 0) {
+		return children;
+	}
+	return [].concat(children);
+}
+
+function beginWork(returnFiber) {
+	let children = returnFiber.children;
+	const pKey = returnFiber ? `${returnFiber.key}:` : '';
+
+	if (!Array.isArray(children)) {
+		children = [children];
+	}
+	children = children.map((item) => {
+		if (typeof item === 'string' || typeof item === 'number') {
+			return jsx('text', { content: item });
+		} else if (Array.isArray(item)) {
+			return jsx(Fragment, { children: item });
+		} else if (!item || !item.type) {
+			return jsx('text', { content: '' });
+		} else {
+			return item;
+		}
+	});
+
+	let result = [];
+	for (let index = 0; index < children.length; index++) {
+		let element = children[index];
+
+		let key = pKey + (element.key || '');
+		if (!element.key) {
+			key = key + (element.type.name || element.type) + '_' + index;
+		}
+
+		let fiber = gen(element, key);
+		if (isTextOrCommentTag(element.type)) {
+			fiber.children = null;
+		} else if (isHTMLTag(element.type)) {
+			fiber.children = toChildren(fiber.props.children);
+		} else {
+			const innerRootElement = fiber.next(fiber.props).value;
+			fiber.children = toChildren(innerRootElement);
+		}
+
+		if (index === 0) {
+			returnFiber.first = fiber;
+		} else {
+			returnFiber.last.sibling = fiber;
+			fiber.previous = returnFiber.last;
+		}
+		fiber.index = index;
+		fiber.return = returnFiber;
+		returnFiber.last = fiber;
+		result.push(fiber);
+	}
+	return result;
+}
+
+function* postOrder(returnFiber) {
+	const fiberList = beginWork(returnFiber);
+
+	for (let fiber of fiberList) {
+		if (!fiber.children || !fiber.children.length) {
+			yield fiber;
+		} else {
+			yield* postOrder(fiber);
+		}
+	}
+
+	yield returnFiber;
+}
+
+function mountFinishedWork(fiber) {
+	if (!fiber.return) {
+		return;
+	}
+	if (isHostElementFiber(fiber)) {
+		const temp = fiber.next(fiber.props).value;
+		if (temp.nodeType !== 3 && temp.nodeType !== 8) {
+			temp.appendChild(fiber.stateNode);
+		}
+		fiber.stateNode = temp;
+	}
+
+	if (fiber.type === Fragment && fiber.props.target) {
+		fiber.props.target.appendChild(fiber.stateNode);
+	} else {
+		fiber.return.stateNode.appendChild(fiber.stateNode);
 	}
 }
 
-export const innerRender = (element, deleteKeySet) => {
-	isMounted = !deleteKeySet.size;
-	if (__DEV__) {
-		console.clear();
-		console.log('%c innerRender"', 'color:#0f0;', element);
+function updateFinishedWork(fiber) {
+	if (isHostElementFiber(fiber)) {
+		fiber.stateNode = fiber.next(fiber.props).value;
 	}
 
-	for (const item of postOrder(element)) {
-		finishedWork(item);
-		deleteKeySet.delete(item._key);
-		if (gen(item).flushEffects) {
-			queueMacrotask(gen(item).flushEffects);
-		}
-	}
-
-	for (const item of deleteKeySet.keys()) {
-		if (GeneratorPool[item]) {
-			GeneratorPool[item].StatusLane = UnMountedLane;
-			GeneratorPool[item].flushCleanEffects(true);
-		}
-	}
-	if (__DEV__) {
-		console.log('deleteKeySet', deleteKeySet);
-	}
-};
-
-export const elementWalker = (element, fun) => {
-	let cursor = element;
-	if (!cursor.child) {
-		fun(cursor);
+	if (!fiber.first) {
 		return;
 	}
 
-	while (true) {
-		while (cursor.child) {
-			cursor = cursor.child;
-		}
-		while (!cursor.sibling) {
-			fun(cursor);
-			if (cursor === element) {
-				return;
+	let childFiber = fiber.first;
+	let preOldIndex = -1;
+	while (childFiber) {
+		if (fiber.Status === FiberStatus.Updated) {
+			if (
+				childFiber.Status === FiberStatus.Mounted ||
+				childFiber.oldIndex < preOldIndex
+			) {
+				const preNode = getPreviousNode(childFiber);
+				const referInfo = getParentOrParentPreNode(fiber);
+
+				insertNode(childFiber, preNode, referInfo);
 			}
-			cursor = cursor.return;
+		} else {
+			fiber.stateNode.appendChild(childFiber.stateNode);
+
+			if (fiber.type === Fragment && fiber.props.target) {
+				fiber.props.target.appendChild(fiber.stateNode);
+			}
 		}
-		fun(cursor);
-		if (cursor === element) {
-			return;
+		preOldIndex = Math.max(childFiber.oldIndex, preOldIndex);
+		childFiber = childFiber.sibling;
+	}
+}
+
+export const innerRender = (returnFiber) => {
+	let result = null;
+	const isUpdate = FiberMap.size > 0;
+
+	for (const fiber of postOrder(returnFiber)) {
+		// console.log('FinishedWork', fiber.key, fiber);
+		// console.count('FinishedWork');
+		if (isUpdate) {
+			updateFinishedWork(fiber);
+		} else {
+			mountFinishedWork(fiber);
 		}
-		cursor = cursor.sibling;
+
+		queueMacrotask(fiber.flushEffects);
+		result = fiber;
+	}
+
+	if (FiberMap.size) {
+		// eslint-disable-next-line @typescript-eslint/no-unused-vars
+		for (const [dKey, dFiber] of FiberMap) {
+			if (dFiber.return && dFiber.return.first === dFiber) {
+				dFiber.return.first = dFiber.return.last = null;
+			}
+			// console.log('unmounted key', dKey);
+			queueMacrotask(() => {
+				dFiber.flushCleanEffects(true);
+			});
+		}
+	}
+
+	return result;
+};
+
+const walkFiber = (fiber, fun) => {
+	const queue = [fiber.first];
+	// dom 删除时从上到下分层来
+	while (queue.length) {
+		let first = queue.shift();
+		while (first) {
+			fun(first);
+			if (first.first) {
+				queue.push(first.first);
+			}
+			first = first.sibling;
+		}
 	}
 };
 
-export const toValidElement = (element) => {
-	if (element && element.type) {
-		return element;
-	}
-	if (typeof element === 'string' || typeof element === 'number') {
-		return jsx('text', { content: element });
-	}
-	if (Array.isArray(element)) {
-		return wrapInnerFragment(element, '');
-	}
-	return jsx('text', { content: '' });
-};
+function forceRender() {
+	// console.clear();
+	const cursorFix = genCursorFix();
+	const realRenderFiberSet = new Set([...renderSetFiber]);
 
-const getCommonRenderElement = () => {
-	const elements = [...renderList.values()].map((gen) => gen.element);
-	renderList.clear();
-
-	const parentMap = new Map();
-	for (const el of elements) {
-		let parent = el;
-
+	for (const fiber of renderSetFiber) {
+		let parent = fiber.return;
 		while (parent) {
-			const count = (parentMap.get(parent) || 0) + 1;
-			if (count === elements.length) {
-				return parent;
+			if (realRenderFiberSet.has(parent)) {
+				realRenderFiberSet.delete(fiber);
+				break;
 			}
-			parentMap.set(parent, count);
 			parent = parent.return;
 		}
 	}
-};
+	renderSetFiber.clear();
 
-export function forceRender() {
-	const cursorFix = genCursorFix();
-
-	const element = getCommonRenderElement();
-
-	const existKeySet = new Set();
-	elementWalker(element, (el) => {
-		existKeySet.add(el._key);
-	});
-
-	innerRender(element, existKeySet);
+	for (const fiber of realRenderFiberSet) {
+		FiberMap.clear();
+		walkFiber(fiber, (f) => FiberMap.set(f.key, f));
+		console.log(FiberMap);
+		const innerRootElement = fiber.next(fiber.props).value;
+		fiber.children = toChildren(innerRootElement);
+		innerRender(fiber);
+		FiberMap.clear();
+	}
 
 	cursorFix();
 }

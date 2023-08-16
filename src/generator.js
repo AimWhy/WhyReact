@@ -1,16 +1,14 @@
-import { shallowEqual } from './util';
+import { shallowEqual, Enum } from './util';
 import { buildInMap } from './buildIn';
 
-export const NoneLane = 0b000001;
-export const MountedLane = 0b000010;
-export const UpdatedLane = 0b000100;
-export const UnMountedLane = 0b001000;
-
-export const GeneratorPool = new Map();
+export const FiberStatus = Enum({
+	Mounted: 'Mounted',
+	Updated: 'Updated'
+});
 
 const firstNextWithProps = (generatorFunction) => {
-	return (...args) => {
-		const generatorObject = generatorFunction(...args);
+	return (func, pushRenderFiber) => {
+		const generatorObject = generatorFunction(func, pushRenderFiber);
 
 		generatorObject.next();
 
@@ -21,10 +19,27 @@ const firstNextWithProps = (generatorFunction) => {
 			throw: (...args) => {
 				return generatorObject.throw(...args);
 			},
-			return: (...args) => {
-				return generatorObject.return(...args);
-			},
-			StatusLane: NoneLane
+
+			//子 fiber 状态
+			first: null,
+			last: null,
+
+			// 自身 fiber 状态
+			oldIndex: -1,
+			index: 0,
+			previous: null,
+			sibling: null,
+			return: null,
+			Status: FiberStatus.Mounted,
+
+			// 继承 Element 数据
+			type: func,
+			key: null,
+			props: {},
+			children: null,
+
+			// dom 数据
+			stateNode: document.createDocumentFragment()
 		};
 
 		generatorObject.next(result);
@@ -41,7 +56,7 @@ const checkIfSnapshotChanged = ({ value, getSnapshot }) => {
 	}
 };
 
-function* withStateFun(func, pushRenderElement) {
+function* withStateFun(func, pushRenderFiber) {
 	const self = yield;
 
 	let StateIndex = 0;
@@ -66,7 +81,7 @@ function* withStateFun(func, pushRenderElement) {
 				}
 				hookQueue[innerIndex] = newState;
 
-				pushRenderElement(self);
+				pushRenderFiber(self);
 			}
 		];
 	};
@@ -75,18 +90,27 @@ function* withStateFun(func, pushRenderElement) {
 	const cleanEffects = [];
 	const useEffect = (effect, deps) => {
 		const innerIndex = StateIndex++;
-		const oldEffect = hookQueue[innerIndex];
-		hookQueue[innerIndex] = [effect, deps];
+		const oldDeps = hookQueue[innerIndex] ? hookQueue[innerIndex][1] : NaN;
 
-		if (deps == void 0) {
-			return effects.push(effect);
+		if (hookQueue.length <= innerIndex) {
+			hookQueue[innerIndex] = [effect, deps];
+		} else {
+			hookQueue[innerIndex][1] = deps;
 		}
 
-		if (self.StatusLane === MountedLane) {
+		if (deps == void 0) {
 			effects.push(effect);
-			effect.mountDep = !deps.length;
-		} else if (deps.length && !shallowEqual(deps, oldEffect[1])) {
-			effects.push(effect);
+		} else if (Array.isArray(deps)) {
+			if (!deps.length) {
+				if (self.Status === FiberStatus.Mounted) {
+					effects.push(effect);
+					effect.mountDep = true;
+				}
+			} else {
+				if (!shallowEqual(deps, oldDeps)) {
+					effects.push(effect);
+				}
+			}
 		}
 	};
 
@@ -121,11 +145,12 @@ function* withStateFun(func, pushRenderElement) {
 				cleanEffects.push(clean);
 			}
 		}
-		self.StatusLane = UpdatedLane;
+		self.Status = FiberStatus.Updated;
 	};
 
 	self.flushCleanEffects = function flushCleanEffects(isUnmounted) {
 		const temp = [];
+
 		while (cleanEffects.length) {
 			const clean = cleanEffects.shift();
 			const isUnmountClean = clean.mountDep;
@@ -140,7 +165,6 @@ function* withStateFun(func, pushRenderElement) {
 				}
 			}
 		}
-
 		if (isUnmounted) {
 			props = void 0;
 			effects.length = 0;
@@ -165,7 +189,8 @@ function* withStateFun(func, pushRenderElement) {
 		self.flushCleanEffects();
 
 		StateIndex = 0;
-		result = func.call(hookMap, newProps, props, hookMap);
+
+		result = func.call(self, newProps, props, hookMap);
 
 		props = newProps;
 
@@ -175,20 +200,14 @@ function* withStateFun(func, pushRenderElement) {
 	}
 }
 
-export const componentCreator = firstNextWithProps(withStateFun);
+const componentCreator = firstNextWithProps(withStateFun);
 
-export function generator(pushRenderElement, element) {
-	if (!GeneratorPool[element._key]) {
-		GeneratorPool[element._key] = componentCreator(
-			typeof element.type === 'string'
-				? buildInMap[element.type]
-				: element.type,
-			pushRenderElement
-		);
-		GeneratorPool[element._key].element = element;
-	}
-	if (GeneratorPool[element._key].StatusLane & (NoneLane | UnMountedLane)) {
-		GeneratorPool[element._key].StatusLane = MountedLane;
-	}
-	return GeneratorPool[element._key];
+export function generator(pushRenderFiber, element) {
+	const result = componentCreator(
+		typeof element.type === 'function'
+			? element.type
+			: buildInMap[element.type],
+		pushRenderFiber
+	);
+	return result;
 }

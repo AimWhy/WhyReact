@@ -1,4 +1,4 @@
-const { createRoot, Fragment: Fragment1 } = window.WhyReact;
+import { createRoot, Fragment as Fragment1 } from '../src/index';
 
 function Hello(props, oldProps, { useState, useEffect }) {
 	const [state, setState] = useState('aimwhy');
@@ -96,7 +96,7 @@ function App(props, oldProps, { useState, useEffect }) {
 					<div>Portal-body</div>
 				</Fragment1>
 			) : (
-				<p>Portal inner</p>
+				'Portal inner'
 			)}
 
 			<Hello parentChange={setState2} key="hello">

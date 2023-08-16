@@ -1,4 +1,4 @@
-import { innerRender, toValidElement } from './workLoop';
+import { innerRender, gen } from './workLoop';
 import { jsx, Fragment } from './jsx-runtime';
 
 const createRoot = (container) => {
@@ -6,11 +6,21 @@ const createRoot = (container) => {
 
 	return {
 		render(element) {
-			element.key = element.key || key;
-			element.stateNode = container;
-			innerRender(element, new Set());
+			const rootElement = jsx(
+				container.tagName.toLowerCase(),
+				{
+					children: element
+				},
+				key
+			);
+
+			const rootFiber = gen(rootElement, key);
+			rootFiber.stateNode = container;
+			rootFiber.children = rootElement.props.children;
+
+			innerRender(rootFiber);
 		}
 	};
 };
 
-export { jsx, Fragment, createRoot, toValidElement };
+export { jsx, Fragment, createRoot };

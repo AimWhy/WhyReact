@@ -1,9 +1,20 @@
 export const makeMap = (list) => {
-	const map = Object.create(null);
-	for (let i = 0; i < list.length; i++) {
-		map[list[i]] = true;
-	}
-	return (val) => !!map[val];
+	const memoSet = new Set(list);
+	return (val) => memoSet.has(val);
+};
+
+export const Enum = (baseEnum) => {
+	return new Proxy(baseEnum, {
+		get(target, name) {
+			if (!Object.prototype.hasOwnProperty.call(baseEnum, name)) {
+				throw new Error(`"${name}" value does not exist in the enum`);
+			}
+			return baseEnum[name];
+		},
+		set() {
+			throw new Error('Cannot add a new value to the enum');
+		}
+	});
 };
 
 export const shallowEqual = (object1, object2) => {
@@ -36,122 +47,6 @@ export const shallowEqual = (object1, object2) => {
 	return true;
 };
 
-export const HTML_TAGS = [
-	'html',
-	'body',
-	'base',
-	'head',
-	'link',
-	'meta',
-	'style',
-	'title',
-	'address',
-	'article',
-	'aside',
-	'footer',
-	'header',
-	'hgroup',
-	'h1',
-	'h2',
-	'h3',
-	'h4',
-	'h5',
-	'h6',
-	'nav',
-	'section',
-	'div',
-	'dd',
-	'dl',
-	'dt',
-	'figcaption',
-	'figure',
-	'picture',
-	'hr',
-	'img',
-	'li',
-	'main',
-	'ol',
-	'p',
-	'pre',
-	'ul',
-	'a',
-	'b',
-	'abbr',
-	'bdi',
-	'bdo',
-	'br',
-	'cite',
-	'code',
-	'data',
-	'dfn',
-	'em',
-	'i',
-	'kbd',
-	'mark',
-	'q',
-	'rp',
-	'rt',
-	'ruby',
-	's',
-	'samp',
-	'small',
-	'span',
-	'strong',
-	'sub',
-	'sup',
-	'time',
-	'u',
-	'var',
-	'wbr',
-	'area',
-	'audio',
-	'map',
-	'track',
-	'video',
-	'embed',
-	'object',
-	'param',
-	'source',
-	'canvas',
-	'script',
-	'noscript',
-	'del',
-	'ins',
-	'caption',
-	'col',
-	'colgroup',
-	'table',
-	'thead',
-	'tbody',
-	'td',
-	'th',
-	'tr',
-	'button',
-	'datalist',
-	'fieldset',
-	'form',
-	'input',
-	'label',
-	'legend',
-	'meter',
-	'optgroup',
-	'option',
-	'output',
-	'progress',
-	'select',
-	'textarea',
-	'details',
-	'dialog',
-	'menu',
-	'summary',
-	'template',
-	'blockquote',
-	'iframe',
-	'tfoot'
-];
-
-export const isHTMLTag = makeMap(HTML_TAGS);
-
 const specialBooleanAttrs = [
 	'itemscope',
 	'allowfullscreen',
@@ -163,12 +58,11 @@ const specialBooleanAttrs = [
 ];
 
 export const isSpecialBooleanAttr = makeMap(specialBooleanAttrs);
-
 export const includeBooleanAttr = (value) => !!value || value === '';
 
 const optionsModifierRE = /(?:Once|Passive|Capture)$/;
 export const parseEventName = (name) => {
-	let options;
+	let options = void 0;
 	if (optionsModifierRE.test(name)) {
 		options = {};
 		let m;
@@ -186,8 +80,8 @@ export const genCursorFix = () => {
 	const start = focusedElement.selectionStart;
 	const end = focusedElement.selectionEnd;
 
+	// 重新定位焦点, 恢复选择位置
 	return () => {
-		// 重新定位焦点, 恢复选择位置
 		focusedElement.focus();
 		focusedElement.selectionStart = start;
 		focusedElement.selectionEnd = end;
