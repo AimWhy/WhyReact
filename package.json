@@ -1,6 +1,6 @@
 {
 	"name": "@aimwhy/whyreact",
-	"version": "1.0.3",
+	"version": "1.0.4",
 	"description": "",
 	"module": "scr/index.js",
 	"main": "dist/index.js",

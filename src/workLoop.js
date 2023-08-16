@@ -153,7 +153,7 @@ function beginWork(returnFiber) {
 			if (objectEqual(fiber.props, element.props, true)) {
 				fiber.reuse = true;
 				walkFiber(fiber, (f) => {
-					fiber.oldIndex = fiber.index;
+					f.oldIndex = f.index;
 					FiberMap.delete(f.key);
 				});
 				// console.log('reuse:' + fiber.key, element);
