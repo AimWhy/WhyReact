@@ -2,17 +2,18 @@ import { genCursorFix, objectEqual, nextTickClearEqualMemo } from './util';
 import { queueMacrotask, queueMicrotaskOnce } from './taskQueue';
 import { isHTMLTag, isTextOrCommentTag, isHostElementFiber } from './buildIn';
 import { generator, FiberStatus } from './generator';
-import { jsx, Fragment } from './jsx-runtime';
+import { jsx, Fragment, isPortal } from './jsx-runtime';
 
 const renderSetFiber = new Set();
 const pushRenderFiber = (generatorObj) => {
 	renderSetFiber.add(generatorObj);
+	console.log('pushRenderFiber');
 	queueMicrotaskOnce(forceRender);
 };
 
 function* lastPositionFiber(fiber) {
 	while (fiber) {
-		if (fiber.type !== Fragment || !fiber.props.target) {
+		if (!isPortal(fiber)) {
 			yield fiber;
 			yield* lastPositionFiber(fiber.last);
 		}
@@ -103,7 +104,6 @@ export const gen = (element, key) => {
 		cleanSelfFiber(fiber);
 	} else {
 		fiber = generator(pushRenderFiber, element);
-		fiber.reuse = false;
 	}
 
 	fiber.key = key;
@@ -147,23 +147,21 @@ function beginWork(returnFiber) {
 
 		let fiber = gen(element, key);
 
-		if (fiber.reuse === false) {
-			cleanChildFiber(fiber);
+		if (fiber.skip !== false && objectEqual(fiber.props, element.props, true)) {
+			fiber.skip = true;
+			walkFiber(fiber, (f) => {
+				f.oldIndex = f.index;
+				FiberMap.delete(f.key);
+			});
+			// console.log('skip:' + fiber.key, element);
 		} else {
-			if (objectEqual(fiber.props, element.props, true)) {
-				fiber.reuse = true;
-				walkFiber(fiber, (f) => {
-					f.oldIndex = f.index;
-					FiberMap.delete(f.key);
-				});
-				// console.log('reuse:' + fiber.key, element);
-			} else {
-				cleanChildFiber(fiber);
-			}
+			fiber.skip = false;
+			cleanChildFiber(fiber);
 		}
+
 		fiber.props = element.props;
 
-		if (fiber.reuse !== true) {
+		if (fiber.skip !== true) {
 			if (isTextOrCommentTag(element.type)) {
 				fiber.children = null;
 			} else if (isHTMLTag(element.type)) {
@@ -192,7 +190,7 @@ function* postOrder(returnFiber) {
 	const fiberList = beginWork(returnFiber);
 
 	for (let fiber of fiberList) {
-		if (!fiber.children || !fiber.children.length || fiber.reuse === true) {
+		if (!fiber.children || !fiber.children.length || fiber.skip === true) {
 			yield fiber;
 		} else {
 			yield* postOrder(fiber);
@@ -214,7 +212,7 @@ function mountFinishedWork(fiber) {
 		fiber.stateNode = temp;
 	}
 
-	if (fiber.type === Fragment && fiber.props.target) {
+	if (isPortal(fiber)) {
 		fiber.props.target.appendChild(fiber.stateNode);
 	} else {
 		fiber.return.stateNode.appendChild(fiber.stateNode);
@@ -226,15 +224,15 @@ function updateFinishedWork(fiber) {
 		fiber.stateNode = fiber.next(fiber.props).value;
 	}
 
-	if (!fiber.first || fiber.reuse === true) {
+	if (!fiber.first || fiber.skip === true) {
 		return;
 	}
 
 	let childFiber = fiber.first;
 	let preOldIndex = -1;
 	while (childFiber) {
-		if (childFiber.type === Fragment && childFiber.props.target) {
-			// reuse 清空跳过了
+		if (isPortal(childFiber)) {
+			console.log('已挂载其他地方、不需要处理');
 		} else if (fiber.Status === FiberStatus.Updated) {
 			if (
 				childFiber.Status === FiberStatus.Mounted ||
@@ -248,7 +246,7 @@ function updateFinishedWork(fiber) {
 		} else {
 			fiber.stateNode.appendChild(childFiber.stateNode);
 
-			if (fiber.type === Fragment && fiber.props.target) {
+			if (isPortal(fiber)) {
 				fiber.props.target.appendChild(fiber.stateNode);
 			}
 		}
@@ -270,7 +268,7 @@ export const innerRender = (returnFiber) => {
 		} else {
 			mountFinishedWork(fiber);
 		}
-		delete fiber.reuse;
+		delete fiber.skip;
 		queueMacrotask(fiber.flushEffects);
 		result = fiber;
 	}
@@ -290,7 +288,7 @@ export const innerRender = (returnFiber) => {
 
 const walkFiber = (fiber, fun) => {
 	const queue = [fiber.first];
-	// dom 删除时从上到下分层来
+	// dom 删除时, 从父到子
 	while (queue.length) {
 		let first = queue.shift();
 		while (first) {
@@ -324,7 +322,7 @@ function forceRender() {
 	for (const fiber of deleteFiber) {
 		let parent = fiber;
 		while (!realRenderFiberSet.has(parent)) {
-			parent.reuse = false;
+			parent.skip = false;
 			parent = parent.return;
 		}
 	}

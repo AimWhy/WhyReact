@@ -19,6 +19,7 @@ const firstNextWithProps = (generatorFunction) => {
 			throw: (...args) => {
 				return generatorObject.throw(...args);
 			},
+			skip: false,
 
 			//子 fiber 状态
 			first: null,

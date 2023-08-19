@@ -1,8 +1,13 @@
 (function (global, factory) {
-	typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
-	typeof define === 'function' && define.amd ? define(['exports'], factory) :
-	(global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.WhyReact = {}));
-})(this, (function (exports) { 'use strict';
+	typeof exports === 'object' && typeof module !== 'undefined'
+		? factory(exports)
+		: typeof define === 'function' && define.amd
+		? define(['exports'], factory)
+		: ((global =
+				typeof globalThis !== 'undefined' ? globalThis : global || self),
+		  factory((global.WhyReact = {})));
+})(this, function (exports) {
+	'use strict';
 
 	const makeMap = (list) => {
 		const memoSet = new Set(list);
@@ -129,7 +134,9 @@
 		window.queueMicrotask ||
 		((callback) => {
 			if (typeof callback !== 'function') {
-				throw new TypeError('The argument to queueMicrotask must be a function.');
+				throw new TypeError(
+					'The argument to queueMicrotask must be a function.'
+				);
 			}
 
 			resolvedPromise.then(callback);
@@ -240,7 +247,11 @@
 							}
 						};
 
-						element.addEventListener(eventName, invokers[pKey].handler, options);
+						element.addEventListener(
+							eventName,
+							invokers[pKey].handler,
+							options
+						);
 					} else {
 						invokers[pKey].raw = pValue;
 					}
@@ -465,6 +476,7 @@
 				throw: (...args) => {
 					return generatorObject.throw(...args);
 				},
+				skip: false,
 
 				//子 fiber 状态
 				first: null,
@@ -665,6 +677,7 @@
 	function Fragment(props) {
 		return props.children;
 	}
+	const isPortal = (fiber) => fiber.type === Fragment && fiber.props.target;
 
 	const renderSetFiber = new Set();
 	const pushRenderFiber = (generatorObj) => {
@@ -674,7 +687,7 @@
 
 	function* lastPositionFiber(fiber) {
 		while (fiber) {
-			if (fiber.type !== Fragment || !fiber.props.target) {
+			if (!isPortal(fiber)) {
 				yield fiber;
 				yield* lastPositionFiber(fiber.last);
 			}
@@ -765,7 +778,6 @@
 			cleanSelfFiber(fiber);
 		} else {
 			fiber = generator(pushRenderFiber, element);
-			fiber.reuse = false;
 		}
 
 		fiber.key = key;
@@ -809,23 +821,24 @@
 
 			let fiber = gen(element, key);
 
-			if (fiber.reuse === false) {
-				cleanChildFiber(fiber);
+			if (
+				fiber.skip !== false &&
+				objectEqual(fiber.props, element.props, true)
+			) {
+				fiber.skip = true;
+				walkFiber(fiber, (f) => {
+					f.oldIndex = f.index;
+					FiberMap.delete(f.key);
+				});
+				// console.log('skip:' + fiber.key, element);
 			} else {
-				if (objectEqual(fiber.props, element.props, true)) {
-					fiber.reuse = true;
-					walkFiber(fiber, (f) => {
-						f.oldIndex = f.index;
-						FiberMap.delete(f.key);
-					});
-					// console.log('reuse:' + fiber.key, element);
-				} else {
-					cleanChildFiber(fiber);
-				}
+				fiber.skip = false;
+				cleanChildFiber(fiber);
 			}
+
 			fiber.props = element.props;
 
-			if (fiber.reuse !== true) {
+			if (fiber.skip !== true) {
 				if (isTextOrCommentTag(element.type)) {
 					fiber.children = null;
 				} else if (isHTMLTag(element.type)) {
@@ -854,7 +867,7 @@
 		const fiberList = beginWork(returnFiber);
 
 		for (let fiber of fiberList) {
-			if (!fiber.children || !fiber.children.length || fiber.reuse === true) {
+			if (!fiber.children || !fiber.children.length || fiber.skip === true) {
 				yield fiber;
 			} else {
 				yield* postOrder(fiber);
@@ -876,7 +889,7 @@
 			fiber.stateNode = temp;
 		}
 
-		if (fiber.type === Fragment && fiber.props.target) {
+		if (isPortal(fiber)) {
 			fiber.props.target.appendChild(fiber.stateNode);
 		} else {
 			fiber.return.stateNode.appendChild(fiber.stateNode);
@@ -888,14 +901,16 @@
 			fiber.stateNode = fiber.next(fiber.props).value;
 		}
 
-		if (!fiber.first || fiber.reuse === true) {
+		if (!fiber.first || fiber.skip === true) {
 			return;
 		}
 
 		let childFiber = fiber.first;
 		let preOldIndex = -1;
 		while (childFiber) {
-			if (childFiber.type === Fragment && childFiber.props.target) ; else if (fiber.Status === FiberStatus.Updated) {
+			if (isPortal(childFiber)) {
+				console.log('已挂载其他地方、不需要处理');
+			} else if (fiber.Status === FiberStatus.Updated) {
 				if (
 					childFiber.Status === FiberStatus.Mounted ||
 					childFiber.oldIndex <= preOldIndex
@@ -908,7 +923,7 @@
 			} else {
 				fiber.stateNode.appendChild(childFiber.stateNode);
 
-				if (fiber.type === Fragment && fiber.props.target) {
+				if (isPortal(fiber)) {
 					fiber.props.target.appendChild(fiber.stateNode);
 				}
 			}
@@ -930,7 +945,7 @@
 			} else {
 				mountFinishedWork(fiber);
 			}
-			delete fiber.reuse;
+			delete fiber.skip;
 			queueMacrotask(fiber.flushEffects);
 			result = fiber;
 		}
@@ -950,7 +965,7 @@
 
 	const walkFiber = (fiber, fun) => {
 		const queue = [fiber.first];
-		// dom 删除时从上到下分层来
+		// dom 删除时, 从父到子
 		while (queue.length) {
 			let first = queue.shift();
 			while (first) {
@@ -984,7 +999,7 @@
 		for (const fiber of deleteFiber) {
 			let parent = fiber;
 			while (!realRenderFiberSet.has(parent)) {
-				parent.reuse = false;
+				parent.skip = false;
 				parent = parent.return;
 			}
 		}
@@ -1030,5 +1045,4 @@
 	exports.Fragment = Fragment;
 	exports.createRoot = createRoot;
 	exports.jsx = jsx;
-
-}));
+});

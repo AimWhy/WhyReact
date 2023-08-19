@@ -102,6 +102,22 @@ function Row(props) {
 					</span>
 				</div>
 			</td>
+			<td className="col-md-4">
+				<a onClick={onSelect}>{item.label}</a>
+				<div className="wanghongying">
+					<span>
+						<i>33333</i>
+					</span>
+				</div>
+			</td>
+			<td className="col-md-4">
+				<a onClick={onSelect}>{item.label}</a>
+				<div className="wanghongying">
+					<span>
+						<i>33333</i>
+					</span>
+				</div>
+			</td>
 			<td className="col-md-1">
 				<a onClick={onRemove}>删除</a>
 			</td>
