@@ -14,10 +14,12 @@ function Hello(props, oldProps, { useState, useEffect }) {
 	useEffect(() => {
 		console.log('%c Hello Update', 'color:#990;');
 	});
-
-	useEffect(() => {
-		console.log('%c Hello Dep Update', 'color:#990;');
-	}, [window.a]);
+	useEffect(
+		(cur, pre) => {
+			console.log(cur, pre, '%c Hello Dep Update', 'color:#990;');
+		},
+		[window.a]
+	);
 
 	return (
 		<>

@@ -7,4 +7,4 @@ export function Fragment(props) {
 }
 
 export const isPortal = (fiber) =>
-	fiber.type === Fragment && fiber.props.target;
+	fiber.type === Fragment && fiber.pendingProps.target;

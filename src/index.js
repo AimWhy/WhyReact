@@ -15,7 +15,7 @@ const createRoot = (container) => {
 			);
 
 			const rootFiber = gen(rootElement, key);
-			rootFiber.props = rootElement.props;
+			rootFiber.pendingProps = rootElement.props;
 			rootFiber.stateNode = container;
 			rootFiber.children = rootElement.props.children;
 

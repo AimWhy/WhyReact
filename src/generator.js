@@ -36,7 +36,8 @@ const firstNextWithProps = (generatorFunction) => {
 			// 继承 Element 数据
 			type: func,
 			key: null,
-			props: {},
+			pendingProps: {},
+			memoizedProps: void 0,
 			children: null,
 
 			// dom 数据
@@ -104,11 +105,12 @@ function* withStateFun(func, pushRenderFiber) {
 		} else if (Array.isArray(deps)) {
 			if (!deps.length) {
 				if (self.Status === FiberStatus.Mounted) {
+					effect.depParam = [];
 					effects.push(effect);
-					effect.mountDep = true;
 				}
 			} else {
 				if (!objectEqual(deps, oldDeps)) {
+					effect.depParam = [deps, oldDeps];
 					effects.push(effect);
 				}
 			}
@@ -139,10 +141,13 @@ function* withStateFun(func, pushRenderFiber) {
 	self.flushEffects = function flushEffects() {
 		while (effects.length) {
 			const current = effects.shift();
-			const clean = current();
+			const clean =
+				current.depParam && current.depParam.length
+					? current.apply(null, current.depParam)
+					: current();
 
 			if (typeof clean === 'function') {
-				clean.mountDep = current.mountDep;
+				clean.depParam = current.depParam;
 				cleanEffects.push(clean);
 			}
 		}
@@ -154,7 +159,7 @@ function* withStateFun(func, pushRenderFiber) {
 
 		while (cleanEffects.length) {
 			const clean = cleanEffects.shift();
-			const isUnmountClean = clean.mountDep;
+			const isUnmountClean = clean.depParam && !clean.depParam.length;
 
 			if (isUnmounted) {
 				clean();
@@ -167,7 +172,7 @@ function* withStateFun(func, pushRenderFiber) {
 			}
 		}
 		if (isUnmounted) {
-			props = void 0;
+			self.memoizedProps = void 0;
 			effects.length = 0;
 			cleanEffects.length = 0;
 			hookQueue.length = 0;
@@ -182,20 +187,19 @@ function* withStateFun(func, pushRenderFiber) {
 		useSyncExternalStore
 	};
 
-	let props = void 0;
-	let newProps = (yield) || {};
 	let result = null;
+	yield;
 
 	while (true) {
 		self.flushCleanEffects();
 
 		StateIndex = 0;
 
-		result = func.call(self, newProps, props, hookMap);
+		const props = self.pendingProps;
+		result = func.call(self, props, self.memoizedProps, hookMap);
 
-		props = newProps;
-
-		newProps = yield result;
+		yield result;
+		self.memoizedProps = props;
 
 		hookMap.instance = result;
 	}
