@@ -1,4 +1,4 @@
-import { createRoot } from '../src/index';
+import { createRoot } from './abc';
 
 const random = (max) => Math.round(Math.random() * 1000) % max;
 
@@ -156,7 +156,7 @@ function Jumbotron(props) {
 					<div className="row">
 						<Button
 							id="run"
-							title="Create 1,000 rows"
+							title="Create 2,000 rows"
 							cb={() => dispatch({ type: 'RUN' })}
 						/>
 						<Button
@@ -192,14 +192,14 @@ function Jumbotron(props) {
 }
 
 let outerDispatch = null;
-function Main(props, oldProps, { useState }) {
+function Main(props, { useState }) {
 	let [state, setState] = useState(initialState);
 	let dispatch =
 		outerDispatch ||
 		function (setState, action) {
 			switch (action.type) {
 				case 'RUN':
-					return setState({ data: buildData(1000) });
+					return setState({ data: buildData(2000) });
 				case 'RUN_LOTS':
 					return setState({ data: buildData(10000) });
 				case 'ADD':
@@ -251,7 +251,6 @@ function Main(props, oldProps, { useState }) {
 			}
 		}.bind(null, setState);
 	outerDispatch = dispatch;
-
 	const { data } = state;
 
 	return (

@@ -1,25 +1,25 @@
-import { createRoot, Fragment as Fragment1 } from '../src/index';
+import { createRoot, Fragment as Fragment1 } from './abc';
 
-function Hello(props, oldProps, { useState, useEffect }) {
+function Hello(props, { useState }) {
 	const [state, setState] = useState('aimwhy');
 	const [state2, setState2] = useState('tt');
 
-	useEffect(() => {
-		console.log('%c Hello Mounted', 'color:#0f0;');
-		return () => {
-			console.log('%c Hello UnMounted', 'color:#0f0;');
-		};
-	}, []);
+	// useEffect(() => {
+	// 	console.log('%c Hello Mounted', 'color:#0f0;');
+	// 	return () => {
+	// 		console.log('%c Hello UnMounted', 'color:#0f0;');
+	// 	};
+	// }, []);
 
-	useEffect(() => {
-		console.log('%c Hello Update', 'color:#990;');
-	});
-	useEffect(
-		(cur, pre) => {
-			console.log(cur, pre, '%c Hello Dep Update', 'color:#990;');
-		},
-		[window.a]
-	);
+	// useEffect(() => {
+	// 	console.log('%c Hello Update', 'color:#990;');
+	// });
+	// useEffect(
+	// 	(cur, pre) => {
+	// 		console.log(cur, pre, '%c Hello Dep Update', 'color:#990;');
+	// 	},
+	// 	[window.a]
+	// );
 
 	return (
 		<>
@@ -29,6 +29,7 @@ function Hello(props, oldProps, { useState, useEffect }) {
 			<input
 				type="text"
 				value={state}
+				onBlur={() => alert(1)}
 				onInput={(e) => {
 					props.parentChange((v) => !v);
 					setState(e.target.value);
@@ -39,19 +40,19 @@ function Hello(props, oldProps, { useState, useEffect }) {
 	);
 }
 
-function World(props, oldProps, { useState, useEffect }) {
+function World(props, { useState }) {
 	const [state, setState] = useState('点击我');
 
-	useEffect(() => {
-		console.log('%c World Mounted', 'color:#0f0;');
-		return () => {
-			console.log('%c World UnMounted', 'color:#0f0;');
-		};
-	}, []);
+	// useEffect(() => {
+	// 	console.log('%c World Mounted', 'color:#0f0;');
+	// 	return () => {
+	// 		console.log('%c World UnMounted', 'color:#0f0;');
+	// 	};
+	// }, []);
 
-	useEffect(() => {
-		console.log('%c World Update', 'color:#990;');
-	});
+	// useEffect(() => {
+	// 	console.log('%c World Update', 'color:#990;');
+	// });
 
 	return (
 		<div
@@ -65,20 +66,20 @@ function World(props, oldProps, { useState, useEffect }) {
 	);
 }
 
-function App(props, oldProps, { useState, useEffect }) {
+function App(props, { useState }) {
 	const [state, setState] = useState(true);
 	const [state2, setState2] = useState(true);
 
-	useEffect(() => {
-		console.log('%c App Mounted', 'color:#0f0;');
-		return () => {
-			console.log('%c App UnMounted', 'color:#0f0;');
-		};
-	}, []);
+	// useEffect(() => {
+	// 	console.log('%c App Mounted', 'color:#0f0;');
+	// 	return () => {
+	// 		console.log('%c App UnMounted', 'color:#0f0;');
+	// 	};
+	// }, []);
 
-	useEffect(() => {
-		console.log('%c App Update', 'color:#990;');
-	});
+	// useEffect(() => {
+	// 	console.log('%c App Update', 'color:#990;');
+	// });
 
 	return (
 		<Fragment1 key="99">
@@ -94,7 +95,7 @@ function App(props, oldProps, { useState, useEffect }) {
 			</Fragment1>
 
 			{!state ? (
-				<Fragment1 key="77" target={document.body}>
+				<Fragment1 key="77" __target={document.body}>
 					<div>Portal-body</div>
 				</Fragment1>
 			) : (
