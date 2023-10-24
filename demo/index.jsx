@@ -147,7 +147,7 @@ function Jumbotron(props) {
 	const { dispatch } = props;
 
 	return (
-		<div className="jumbotron">
+		<div className="jumbotron" key="jum">
 			<div className="row">
 				<div className="col-md-6">
 					<h1>React keyed</h1>
