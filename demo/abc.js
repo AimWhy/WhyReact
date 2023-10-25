@@ -178,20 +178,30 @@ export const parseEventName = (name) => {
 	return [event, options];
 };
 
-const unBubbleEventSet = new Set(['blur']);
+const unBubbleEventSet = new Set([
+	'onLoad',
+	'onBeforeunload',
+	'onUnload',
+	'onScroll',
+	'onFocus',
+	'onBlur',
+	'onPointerenter',
+	'onPointerleave',
+	'onInput'
+]);
 
-export function fixUnBubbleEvent(dom, pKey) {
-	const [eventName, options] = parseEventName(pKey);
+export function fixUnBubbleEvent(dom, pKey, pValue) {
+	const [eventName] = parseEventName(pKey);
+	const method = pValue === void 0 ? 'removeEventListener' : 'addEventListener';
+
 	if (eventName === 'input') {
-		dom.addEventListener('compositionstart', onCompositionStart);
-		dom.addEventListener('compositionend', onCompositionEnd);
-		dom.addEventListener('change', onCompositionEnd);
-		dom.addEventListener('input', onInputFixed);
+		dom[method]('compositionstart', onCompositionStart);
+		dom[method]('compositionend', onCompositionEnd);
+		dom[method]('change', onCompositionEnd);
+		dom[method]('input', onInputFixed);
 	}
 
-	if (unBubbleEventSet.has(eventName)) {
-		dom.addEventListener(eventName, eventCallback, options);
-	}
+	dom[method](eventName, eventCallback);
 }
 
 let workInProgress = null;
@@ -201,8 +211,13 @@ const genComponentInnerElement = (fiber) => {
 	if (
 		!fiber.isSelfStateChange &&
 		ComponentGenMemo.has(fiber) &&
-		objectEqual(fiber.memoizedProps, fiber.pendingProps)
+		objectEqual(
+			fiber.memoizedProps,
+			fiber.pendingProps,
+			!fiber.pendingProps.children ? true : false
+		)
 	) {
+		dispatchHook(fiber, 'Retain');
 		return ComponentGenMemo.get(fiber);
 	}
 
@@ -216,7 +231,6 @@ const genComponentInnerElement = (fiber) => {
 		workInProgress = preFiber;
 	}
 
-	// console.log('Retain Component', fiber);
 	ComponentGenMemo.set(fiber, result);
 	return result;
 };
@@ -246,13 +260,39 @@ export const useState = (initialState) => {
 	];
 };
 
+const ComponentHookMap = {
+	Retain(fiber) {
+		queueMacrotask(fiber.flushEffects);
+	},
+	UnMount(fiber) {
+		queueMacrotask(fiber.flushEffects);
+	},
+	Placement(fiber) {
+		queueMacrotask(fiber.flushEffects);
+	},
+	Mount(fiber) {
+		queueMacrotask(fiber.flushEffects);
+	},
+	Update(fiber) {
+		queueMacrotask(fiber.flushEffects);
+	},
+	Effect(fiber) {
+		queueMacrotask(fiber.flushEffects);
+	}
+};
+
+const dispatchHook = (fiber, hookName) => {
+	ComponentHookMap[hookName](fiber);
+	console.log(`Component-${hookName}`, fiber.nodeKey);
+};
+
 export class Fiber {
 	key = null;
 	pKeys = [];
 	type = null;
 	pendingProps = {};
 	memoizedProps = {};
-	memoizedState = null;
+	memoizedState = [];
 
 	_index = 0;
 	oldIndex = -1;
@@ -529,11 +569,18 @@ export const updateHostFiber = (fiber) => {
 	if (fiber.type === 'text') {
 		fiber.stateNode.data = fiber.memoizedState;
 	} else {
-		for (const [pKey, pValue] of Object.entries(fiber.memoizedState)) {
-			if (pValue === void 0) {
-				fiber.stateNode.removeAttribute(pKey);
+		for (let i = 0; i < fiber.memoizedState.length; i += 2) {
+			const pKey = fiber.memoizedState[i];
+			const pValue = fiber.memoizedState[i + 1];
+
+			if (unBubbleEventSet.has(pKey)) {
+				fixUnBubbleEvent(fiber.stateNode, pKey, pValue);
 			} else {
-				fiber.stateNode.setAttribute(pKey, pValue);
+				if (pValue === void 0) {
+					fiber.stateNode.removeAttribute(pKey);
+				} else {
+					fiber.stateNode.setAttribute(pKey, pValue);
+				}
 			}
 		}
 	}
@@ -546,7 +593,7 @@ export const childDeletionFiber = (returnFiber) => {
 				if (Fiber.isHostFiber(f)) {
 					f.stateNode.remove();
 				} else {
-					console.log('UnMount Component', f.nodeKey);
+					dispatchHook(f, 'UnMount');
 				}
 				Fiber.ExistPool.delete(f.nodeKey);
 			}
@@ -570,38 +617,41 @@ function finishedWork(fiber) {
 			fiber.flags |= Update;
 		}
 	} else if (isHTMLTag(fiber.type)) {
-		const attrs = {};
+		const attrs = [];
 		for (const [pKey, pValue] of Object.entries(newProps)) {
 			const oldPValue = oldProps[pKey];
 			delete oldProps[pKey];
-			// todo
-			fixUnBubbleEvent(fiber.stateNode, pKey, pValue);
 
-			if (
+			if (/^on[A-Z]/.test(pKey)) {
+				if (unBubbleEventSet.has(pKey)) {
+					attrs.push(pKey, true);
+				}
+			} else if (
 				pValue !== oldPValue &&
 				pKey !== 'children' &&
-				pKey !== 'ref' &&
-				!pKey.match(/^on[A-Z]/)
+				pKey !== 'ref'
 			) {
 				const isBoolean = isSpecialBooleanAttr(pKey);
 				if (pValue == null || (isBoolean && !includeBooleanAttr(pValue))) {
-					attrs[pKey] = void 0;
+					attrs.push(pKey, void 0);
 				} else {
-					attrs[pKey] = isBoolean ? '' : pValue;
+					attrs.push(pKey, isBoolean ? '' : pValue);
 				}
 			}
 		}
 
 		for (const [pKey] of Object.entries(oldProps)) {
-			if (pKey !== 'children' && pKey !== 'ref' && !pKey.match(/^on[A-Z]/)) {
-				attrs[pKey] = void 0;
+			if (/^on[A-Z]/.test(pKey)) {
+				if (unBubbleEventSet.has(pKey)) {
+					attrs.push(pKey, void 0);
+				}
+			} else if (pKey !== 'children' && pKey !== 'ref') {
+				attrs.push(pKey, void 0);
 			}
 		}
 
-		// todo 修改位置
 		fiber.memoizedState = attrs;
-
-		if (Object.keys(fiber.memoizedState).length) {
+		if (fiber.memoizedState.length) {
 			fiber.flags |= Update;
 		}
 	} else {
@@ -638,22 +688,15 @@ const commitRoot = () => {
 
 		if (Fiber.isHostFiber(fiber)) {
 			fiber.stateNode[elementPropsKey] = fiber.memoizedProps;
-		} else {
-			console.log('Committing Component', fiber.nodeKey);
 		}
 
 		if ((fiber.flags & Placement) !== NoFlags) {
 			if (Fiber.isHostFiber(fiber)) {
 				placementFiber(fiber, i);
 			} else {
-				console.log(
-					`${
-						(fiber.flags & MarkReusableFiber) !== NoFlags
-							? 'Placement'
-							: 'Mount'
-					} Component`,
-					fiber.nodeKey
-				);
+				const hookName =
+					(fiber.flags & MarkReusableFiber) !== NoFlags ? 'Placement' : 'Mount';
+				dispatchHook(fiber, hookName);
 			}
 
 			fiber.flags &= ~Placement;
@@ -663,7 +706,7 @@ const commitRoot = () => {
 			if (Fiber.isHostFiber(fiber)) {
 				updateHostFiber(fiber);
 			} else {
-				console.log('Update Component', fiber.nodeKey);
+				dispatchHook(fiber, 'Update');
 			}
 			fiber.flags &= ~Update;
 		}
@@ -700,8 +743,7 @@ export const pushRenderFiber = (fiber) => {
 export const innerRender = (renderRootFiber) => {
 	for (const fiber of walkFiber(renderRootFiber)) {
 		if (!Fiber.isHostFiber(fiber)) {
-			queueMacrotask(fiber.flushEffects);
-			console.count('innerRender');
+			dispatchHook(fiber, 'Effect', true);
 		}
 	}
 
