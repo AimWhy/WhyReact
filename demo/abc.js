@@ -76,19 +76,6 @@ const HTML_TAGS =
 
 const isHTMLTag = makeMap(HTML_TAGS);
 
-export const genCursorFix = () => {
-	const focusedElement = document.activeElement;
-	const start = focusedElement.selectionStart;
-	const end = focusedElement.selectionEnd;
-
-	// 重新定位焦点, 恢复选择位置
-	return () => {
-		focusedElement.focus();
-		focusedElement.selectionStart = start;
-		focusedElement.selectionEnd = end;
-	};
-};
-
 const uniqueSet = new Set();
 export const queueMicrotaskOnce = (func) => {
 	if (!uniqueSet.has(func)) {
@@ -139,6 +126,113 @@ export const queueMacrotask = (callback) => {
 	}
 };
 
+export const elementPropsKey = '__props';
+
+/* #region 事件相关 */
+
+const eventTypeMap = {
+	click: ['onClickCapture', 'onClick']
+};
+
+function getEventCallbackNameFromEventType(eventType) {
+	return eventTypeMap[eventType];
+}
+
+function collectPaths(targetElement, container, eventType) {
+	const paths = {
+		capture: [],
+		bubble: []
+	};
+
+	while (targetElement && targetElement !== container) {
+		const elementProps = targetElement[elementPropsKey];
+
+		if (elementProps) {
+			// click -> onClick onClickCapture
+			const callbackNameList = getEventCallbackNameFromEventType(eventType);
+			if (callbackNameList) {
+				callbackNameList.forEach((callbackName, i) => {
+					const eventCallback = elementProps[callbackName];
+					if (eventCallback) {
+						if (i === 0) {
+							paths.capture.unshift(eventCallback);
+						} else {
+							paths.bubble.push(eventCallback);
+						}
+					}
+				});
+			}
+		}
+		targetElement = targetElement.parentNode;
+	}
+	return paths;
+}
+
+function createSyntheticEvent(e) {
+	const syntheticEvent = e;
+	syntheticEvent.__stopPropagation = false;
+	const originStopPropagation = e.stopPropagation;
+
+	syntheticEvent.stopPropagation = () => {
+		syntheticEvent.__stopPropagation = true;
+		if (originStopPropagation) {
+			originStopPropagation();
+		}
+	};
+	return syntheticEvent;
+}
+
+function triggerEventFlow(paths, se) {
+	for (let i = 0; i < paths.length; i++) {
+		const callback = paths[i];
+		callback.call(null, se);
+		if (se.__stopPropagation) {
+			break;
+		}
+	}
+}
+
+function dispatchEvent(container, eventType, e) {
+	const targetElement = e.target;
+
+	if (!targetElement) {
+		return console.warn('事件不存在target', e);
+	}
+
+	// 1. 收集沿途的事件
+	const { bubble, capture } = collectPaths(targetElement, container, eventType);
+
+	// 2. 构造合成事件
+	const se = createSyntheticEvent(e);
+
+	// 3. 遍历capture
+	triggerEventFlow(capture, se);
+
+	if (!se.__stopPropagation) {
+		// 4. 遍历bubble
+		triggerEventFlow(bubble, se);
+	}
+}
+
+export function initEvent(container, eventType) {
+	container.addEventListener(eventType, (e) => {
+		dispatchEvent(container, eventType, e);
+	});
+}
+
+const testHostSpecial = (name) => /^on[A-Z]/.test(name);
+const hostSpecialAttrSet = new Set([
+	'onLoad',
+	'onBeforeunload',
+	'onUnload',
+	'onScroll',
+	'onFocus',
+	'onBlur',
+	'onPointerenter',
+	'onPointerleave',
+	'onInput'
+]);
+
 const onCompositionStart = (e) => {
 	e.target.composing = true;
 };
@@ -178,34 +272,85 @@ export const parseEventName = (name) => {
 	return [event, options];
 };
 
-const unBubbleEventSet = new Set([
-	'onLoad',
-	'onBeforeunload',
-	'onUnload',
-	'onScroll',
-	'onFocus',
-	'onBlur',
-	'onPointerenter',
-	'onPointerleave',
-	'onInput'
-]);
+export const genCursorFix = () => {
+	const focusedElement = document.activeElement;
+	const start = focusedElement.selectionStart;
+	const end = focusedElement.selectionEnd;
 
-export function fixUnBubbleEvent(dom, pKey, pValue) {
-	const [eventName] = parseEventName(pKey);
-	const method = pValue === void 0 ? 'removeEventListener' : 'addEventListener';
+	// 重新定位焦点, 恢复选择位置
+	return () => {
+		focusedElement.focus();
+		focusedElement.selectionStart = start;
+		focusedElement.selectionEnd = end;
+	};
+};
 
-	if (eventName === 'input') {
-		dom[method]('compositionstart', onCompositionStart);
-		dom[method]('compositionend', onCompositionEnd);
-		dom[method]('change', onCompositionEnd);
-		dom[method]('input', onInputFixed);
+const domHostConfig = {
+	createInstance(type) {
+		const element = document.createElement(type);
+		return element;
+	},
+	createTextInstance(content) {
+		return document.createTextNode(content);
+	},
+	toLast(child, container) {
+		container.insertBefore(child, null);
+	},
+	toFirst(child, container) {
+		container.insertBefore(child, container.firstChild);
+	},
+	toBefore(child, container, reference) {
+		container.insertBefore(child, reference);
+	},
+	toAfter(child, container, reference) {
+		container.insertBefore(child, reference.nextSibling);
+	},
+	removeChild(child) {
+		child.remove();
+	},
+	commitTextUpdate(node, content) {
+		node.data = content;
+	},
+	commitInstanceUpdate(node, attrs) {
+		for (let i = 0; i < attrs.length; i += 2) {
+			const pKey = attrs[i];
+			const pValue = attrs[i + 1];
+
+			if (hostSpecialAttrSet.has(pKey)) {
+				domHostConfig.fixUnBubbleEvent(node, pKey, pValue);
+			} else {
+				if (pValue === void 0) {
+					node.removeAttribute(pKey);
+				} else {
+					node.setAttribute(pKey, pValue);
+				}
+			}
+		}
+	},
+	fixUnBubbleEvent(node, fullEventName, callback) {
+		const [eventName] = parseEventName(fullEventName);
+		const method =
+			callback === void 0 ? 'removeEventListener' : 'addEventListener';
+
+		if (eventName === 'input') {
+			node[method]('compositionstart', onCompositionStart);
+			node[method]('compositionend', onCompositionEnd);
+			node[method]('change', onCompositionEnd);
+			node[method]('input', onInputFixed);
+		}
+
+		node[method](eventName, eventCallback);
+	},
+	updateInstanceProps(node, props) {
+		node[elementPropsKey] = props;
 	}
+};
 
-	dom[method](eventName, eventCallback);
-}
+/* #regionend 事件相关 */
+
+const hostConfig = domHostConfig;
 
 let workInProgress = null;
-
 const ComponentGenMemo = new WeakMap();
 const genComponentInnerElement = (fiber) => {
 	if (
@@ -256,32 +401,17 @@ export const useState = (initialState) => {
 };
 
 const ComponentHookMemo = new WeakMap();
-
+const defaultAction = (fiber) => {
+	const list = ComponentHookMemo.get(fiber) || [];
+	console.log(list);
+};
 const ComponentHookActionMap = {
-	Retain(fiber) {
-		const list = ComponentHookMemo.get(fiber) || [];
-		console.log(list);
-	},
-	UnMount(fiber) {
-		const list = ComponentHookMemo.get(fiber) || [];
-		console.log(list);
-	},
-	Placement(fiber) {
-		const list = ComponentHookMemo.get(fiber) || [];
-		console.log(list);
-	},
-	Mount(fiber) {
-		const list = ComponentHookMemo.get(fiber) || [];
-		console.log(list);
-	},
-	Update(fiber) {
-		const list = ComponentHookMemo.get(fiber) || [];
-		console.log(list);
-	},
-	Effect(fiber) {
-		const list = ComponentHookMemo.get(fiber) || [];
-		console.log(list);
-	}
+	Retain: defaultAction,
+	UnMount: defaultAction,
+	Placement: defaultAction,
+	Mount: defaultAction,
+	Update: defaultAction,
+	Effect: defaultAction
 };
 const dispatchHook = (fiber, hookName) => {
 	ComponentHookActionMap[hookName](fiber);
@@ -390,9 +520,9 @@ export class Fiber {
 		if (this.pendingProps.__target) {
 			this.stateNode = this.pendingProps.__target;
 		} else if (Fiber.isTextFiber(this)) {
-			this.stateNode = document.createTextNode(this.pendingProps.content);
+			this.stateNode = hostConfig.createTextInstance(this.pendingProps.content);
 		} else if (Fiber.isHostFiber(this)) {
-			this.stateNode = document.createElement(this.type);
+			this.stateNode = hostConfig.createInstance(this.type);
 		}
 
 		if (this.stateNode) {
@@ -537,7 +667,7 @@ export const placementFiber = (fiber, index) => {
 
 	// portal: __target
 	if (!Fiber.isHostFiber(parentHostFiber)) {
-		parentHostFiber.stateNode.appendChild(fiber.stateNode);
+		hostConfig.toLast(fiber.stateNode, parentHostFiber.stateNode);
 		return;
 	}
 
@@ -548,36 +678,21 @@ export const placementFiber = (fiber, index) => {
 	);
 
 	if (preHostFiber && preHostFiber.isDescendantOf(parentHostFiber)) {
-		parentHostFiber.stateNode.insertBefore(
+		hostConfig.toAfter(
 			fiber.stateNode,
-			preHostFiber.stateNode.nextSibling
+			parentHostFiber.stateNode,
+			preHostFiber.stateNode
 		);
 	} else {
-		parentHostFiber.stateNode.insertBefore(
-			fiber.stateNode,
-			parentHostFiber.stateNode.firstChild
-		);
+		hostConfig.toFirst(fiber.stateNode, parentHostFiber.stateNode);
 	}
 };
 
 export const updateHostFiber = (fiber) => {
 	if (Fiber.isTextFiber(fiber)) {
-		fiber.stateNode.data = fiber.memoizedState;
+		hostConfig.commitTextUpdate(fiber.stateNode, fiber.memoizedState);
 	} else {
-		for (let i = 0; i < fiber.memoizedState.length; i += 2) {
-			const pKey = fiber.memoizedState[i];
-			const pValue = fiber.memoizedState[i + 1];
-
-			if (unBubbleEventSet.has(pKey)) {
-				fixUnBubbleEvent(fiber.stateNode, pKey, pValue);
-			} else {
-				if (pValue === void 0) {
-					fiber.stateNode.removeAttribute(pKey);
-				} else {
-					fiber.stateNode.setAttribute(pKey, pValue);
-				}
-			}
-		}
+		hostConfig.commitInstanceUpdate(fiber.stateNode, fiber.memoizedState);
 	}
 };
 
@@ -586,7 +701,7 @@ export const childDeletionFiber = (returnFiber) => {
 		for (const fiber of returnFiber.deletions) {
 			for (const f of walkFiberTree(fiber)) {
 				if (Fiber.isHostFiber(f)) {
-					f.stateNode.remove();
+					hostConfig.removeChild(f.stateNode);
 				} else {
 					dispatchHook(f, 'UnMount');
 				}
@@ -617,14 +732,15 @@ function finishedWork(fiber) {
 			const oldPValue = oldProps[pKey];
 			delete oldProps[pKey];
 
-			if (/^on[A-Z]/.test(pKey)) {
-				if (unBubbleEventSet.has(pKey)) {
+			if (testHostSpecial(pKey)) {
+				if (hostSpecialAttrSet.has(pKey)) {
 					attrs.push(pKey, true);
 				}
 			} else if (
 				pValue !== oldPValue &&
 				pKey !== 'children' &&
-				pKey !== 'ref'
+				pKey !== 'ref' &&
+				pKey[0] !== '_'
 			) {
 				const isBoolean = isSpecialBooleanAttr(pKey);
 				if (pValue == null || (isBoolean && !includeBooleanAttr(pValue))) {
@@ -636,11 +752,11 @@ function finishedWork(fiber) {
 		}
 
 		for (const [pKey] of Object.entries(oldProps)) {
-			if (/^on[A-Z]/.test(pKey)) {
-				if (unBubbleEventSet.has(pKey)) {
+			if (testHostSpecial(pKey)) {
+				if (hostSpecialAttrSet.has(pKey)) {
 					attrs.push(pKey, void 0);
 				}
-			} else if (pKey !== 'children' && pKey !== 'ref') {
+			} else if (pKey !== 'children' && pKey !== 'ref' && pKey[0] !== '_') {
 				attrs.push(pKey, void 0);
 			}
 		}
@@ -682,7 +798,7 @@ const commitRoot = () => {
 		const fiber = ConquerFiberQueue[i];
 
 		if (Fiber.isHostFiber(fiber)) {
-			fiber.stateNode[elementPropsKey] = fiber.memoizedProps;
+			hostConfig.updateInstanceProps(fiber.stateNode, fiber.memoizedProps);
 		}
 
 		if ((fiber.flags & Placement) !== NoFlags) {
@@ -743,98 +859,6 @@ export const innerRender = (renderRootFiber) => {
 	}
 	commitRoot(renderRootFiber);
 };
-
-/* #region 事件相关 */
-export const elementPropsKey = '__props';
-const eventTypeMap = {
-	click: ['onClickCapture', 'onClick']
-};
-
-function getEventCallbackNameFromEventType(eventType) {
-	return eventTypeMap[eventType];
-}
-
-function collectPaths(targetElement, container, eventType) {
-	const paths = {
-		capture: [],
-		bubble: []
-	};
-
-	while (targetElement && targetElement !== container) {
-		const elementProps = targetElement[elementPropsKey];
-
-		if (elementProps) {
-			// click -> onClick onClickCapture
-			const callbackNameList = getEventCallbackNameFromEventType(eventType);
-			if (callbackNameList) {
-				callbackNameList.forEach((callbackName, i) => {
-					const eventCallback = elementProps[callbackName];
-					if (eventCallback) {
-						if (i === 0) {
-							paths.capture.unshift(eventCallback);
-						} else {
-							paths.bubble.push(eventCallback);
-						}
-					}
-				});
-			}
-		}
-		targetElement = targetElement.parentNode;
-	}
-	return paths;
-}
-
-function createSyntheticEvent(e) {
-	const syntheticEvent = e;
-	syntheticEvent.__stopPropagation = false;
-	const originStopPropagation = e.stopPropagation;
-
-	syntheticEvent.stopPropagation = () => {
-		syntheticEvent.__stopPropagation = true;
-		if (originStopPropagation) {
-			originStopPropagation();
-		}
-	};
-	return syntheticEvent;
-}
-
-function triggerEventFlow(paths, se) {
-	for (let i = 0; i < paths.length; i++) {
-		const callback = paths[i];
-		callback.call(null, se);
-		if (se.__stopPropagation) {
-			break;
-		}
-	}
-}
-
-function dispatchEvent(container, eventType, e) {
-	const targetElement = e.target;
-
-	if (!targetElement) {
-		return console.warn('事件不存在target', e);
-	}
-
-	// 1. 收集沿途的事件
-	const { bubble, capture } = collectPaths(targetElement, container, eventType);
-
-	// 2. 构造合成事件
-	const se = createSyntheticEvent(e);
-
-	// 3. 遍历capture
-	triggerEventFlow(capture, se);
-
-	if (!se.__stopPropagation) {
-		// 4. 遍历bubble
-		triggerEventFlow(bubble, se);
-	}
-}
-
-export function initEvent(container, eventType) {
-	container.addEventListener(eventType, (e) => {
-		dispatchEvent(container, eventType, e);
-	});
-}
 
 let __rootFiber = null;
 export const getRootFiber = () => __rootFiber;
