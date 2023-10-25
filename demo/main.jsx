@@ -66,6 +66,8 @@ function World(props, { useState }) {
 	);
 }
 
+const memo = () => <i>i {5555}</i>;
+
 function App(props, { useState }) {
 	const [state, setState] = useState(true);
 	const [state2, setState2] = useState(true);
@@ -94,6 +96,10 @@ function App(props, { useState }) {
 				<div>Fragment</div>
 			</Fragment1>
 
+			<Fragment1 key="799" __target={document.body}>
+				<div>Portal-body A</div>
+			</Fragment1>
+
 			{!state ? (
 				<Fragment1 key="77" __target={document.body}>
 					<div>Portal-body</div>
@@ -103,7 +109,7 @@ function App(props, { useState }) {
 			)}
 
 			<Hello parentChange={setState2} key="hello">
-				{() => <i>i {state2}</i>}
+				{memo}
 			</Hello>
 
 			{state ? <World /> : <div>销毁后的文案</div>}

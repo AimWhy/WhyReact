@@ -324,7 +324,7 @@ export class Fiber {
 
 	get normalChildren() {
 		let children = [];
-		if (this.type === 'text') {
+		if (Fiber.isTextFiber(this)) {
 			return children;
 		}
 
@@ -387,12 +387,12 @@ export class Fiber {
 		this.pendingProps = element.props;
 		this.flags = Placement;
 
-		if (element.props.__target) {
-			this.stateNode = element.props.__target;
-		} else if (element.type === 'text') {
-			this.stateNode = document.createTextNode(element.props.content);
-		} else if (typeof element.type === 'string') {
-			this.stateNode = document.createElement(element.type);
+		if (this.pendingProps.__target) {
+			this.stateNode = this.pendingProps.__target;
+		} else if (Fiber.isTextFiber(this)) {
+			this.stateNode = document.createTextNode(this.pendingProps.content);
+		} else if (Fiber.isHostFiber(this)) {
+			this.stateNode = document.createElement(this.type);
 		}
 
 		if (this.stateNode) {
@@ -408,6 +408,7 @@ export class Fiber {
 }
 Fiber.ExistPool = new Map();
 Fiber.genNodeKey = (key, pKeys = []) => `${pKeys.join(':')}-${key}`;
+Fiber.isTextFiber = (fiber) => fiber && fiber.type === 'text';
 Fiber.isHostFiber = (fiber) => fiber && typeof fiber.type === 'string';
 
 function* walkChildFiber(returnFiber) {
@@ -560,7 +561,7 @@ export const placementFiber = (fiber, index) => {
 };
 
 export const updateHostFiber = (fiber) => {
-	if (fiber.type === 'text') {
+	if (Fiber.isTextFiber(fiber)) {
 		fiber.stateNode.data = fiber.memoizedState;
 	} else {
 		for (let i = 0; i < fiber.memoizedState.length; i += 2) {
@@ -605,7 +606,7 @@ function finishedWork(fiber) {
 	const oldProps = { ...(fiber.memoizedProps || {}) };
 	const newProps = fiber.pendingProps || {};
 
-	if (fiber.type === 'text') {
+	if (Fiber.isTextFiber(fiber)) {
 		if (!oldProps || newProps.content !== oldProps.content) {
 			fiber.memoizedState = newProps.content;
 			fiber.flags |= Update;
@@ -661,7 +662,7 @@ function* walkFiber(returnFiber) {
 	const fiberList = beginWork(returnFiber);
 
 	for (const fiber of fiberList) {
-		if (fiber.type === 'text') {
+		if (Fiber.isTextFiber(fiber)) {
 			finishedWork(fiber);
 			yield fiber;
 		} else {
@@ -740,7 +741,6 @@ export const innerRender = (renderRootFiber) => {
 			dispatchHook(fiber, 'Effect', true);
 		}
 	}
-
 	commitRoot(renderRootFiber);
 };
 
@@ -761,7 +761,6 @@ function collectPaths(targetElement, container, eventType) {
 	};
 
 	while (targetElement && targetElement !== container) {
-		// 收集
 		const elementProps = targetElement[elementPropsKey];
 
 		if (elementProps) {
