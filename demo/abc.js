@@ -211,11 +211,7 @@ const genComponentInnerElement = (fiber) => {
 	if (
 		!fiber.isSelfStateChange &&
 		ComponentGenMemo.has(fiber) &&
-		objectEqual(
-			fiber.memoizedProps,
-			fiber.pendingProps,
-			!fiber.pendingProps.children ? true : false
-		)
+		objectEqual(fiber.memoizedProps, fiber.pendingProps, true)
 	) {
 		dispatchHook(fiber, 'Retain');
 		return ComponentGenMemo.get(fiber);
@@ -241,48 +237,54 @@ export const useState = (initialState) => {
 	const { hookQueue, forceRender } = fiber;
 
 	if (hookQueue.length <= innerIndex) {
-		if (typeof initialState === 'function') {
-			initialState = initialState();
-		}
-		hookQueue[innerIndex] = initialState;
-	}
+		const state =
+			typeof initialState === 'function' ? initialState() : initialState;
 
-	return [
-		hookQueue[innerIndex],
-		(newState) => {
+		const dispatch = (newState) => {
 			if (typeof newState === 'function') {
-				const oldState = hookQueue[innerIndex];
+				const oldState = hookQueue[innerIndex].state;
 				newState = newState(oldState);
 			}
-			hookQueue[innerIndex] = newState;
+			hookQueue[innerIndex].state = newState;
 			forceRender();
-		}
-	];
+		};
+
+		hookQueue[innerIndex] = { state, dispatch };
+	}
+
+	return [hookQueue[innerIndex].state, hookQueue[innerIndex].dispatch];
 };
 
-const ComponentHookMap = {
+const ComponentHookMemo = new WeakMap();
+
+const ComponentHookActionMap = {
 	Retain(fiber) {
-		queueMacrotask(fiber.flushEffects);
+		const list = ComponentHookMemo.get(fiber) || [];
+		console.log(list);
 	},
 	UnMount(fiber) {
-		queueMacrotask(fiber.flushEffects);
+		const list = ComponentHookMemo.get(fiber) || [];
+		console.log(list);
 	},
 	Placement(fiber) {
-		queueMacrotask(fiber.flushEffects);
+		const list = ComponentHookMemo.get(fiber) || [];
+		console.log(list);
 	},
 	Mount(fiber) {
-		queueMacrotask(fiber.flushEffects);
+		const list = ComponentHookMemo.get(fiber) || [];
+		console.log(list);
 	},
 	Update(fiber) {
-		queueMacrotask(fiber.flushEffects);
+		const list = ComponentHookMemo.get(fiber) || [];
+		console.log(list);
 	},
 	Effect(fiber) {
-		queueMacrotask(fiber.flushEffects);
+		const list = ComponentHookMemo.get(fiber) || [];
+		console.log(list);
 	}
 };
-
 const dispatchHook = (fiber, hookName) => {
-	ComponentHookMap[hookName](fiber);
+	ComponentHookActionMap[hookName](fiber);
 	console.log(`Component-${hookName}`, fiber.nodeKey);
 };
 
@@ -307,17 +309,6 @@ export class Fiber {
 
 	StateIndex = 0;
 	hookQueue = [];
-
-	lifecycle = {
-		onMounted: [],
-		onUpdated: [],
-		onUnmounted: [],
-		onBeforeMount: [],
-		onBeforeUpdate: [],
-		onBeforeUnmount: [],
-		onActivated: [],
-		onDeactivated: []
-	};
 
 	forceRender = () => {
 		pushRenderFiber(this);
@@ -368,13 +359,23 @@ export class Fiber {
 		return (this.flags & Update) !== NoFlags;
 	}
 
-	get inStateChangeScope() {
+	get isInStateChangeScope() {
 		if (this.isSelfStateChange) {
 			return true;
 		} else if (!this.return) {
 			return false;
 		} else {
-			return this.return.inStateChangeScope;
+			return this.return.isInStateChangeScope;
+		}
+	}
+
+	get isInPortalScope() {
+		if (!this.return) {
+			return false;
+		} else if (this.pendingProps.__target) {
+			return true;
+		} else {
+			return this.return.isInPortalScope;
 		}
 	}
 
@@ -397,12 +398,6 @@ export class Fiber {
 		if (this.stateNode) {
 			this.stateNode.__fiber = this;
 		}
-
-		// Object.keys(this.lifecycle).forEach((hookName) => {
-		// 	this[hookName] = (callback) => {
-		// 		this.lifecycle[hookName].push(callback);
-		// 	};
-		// });
 	}
 
 	isDescendantOf(returnFiber) {
@@ -410,8 +405,6 @@ export class Fiber {
 			[...returnFiber.pKeys, returnFiber.key].join(':')
 		);
 	}
-
-	flushEffects() {}
 }
 Fiber.ExistPool = new Map();
 Fiber.genNodeKey = (key, pKeys = []) => `${pKeys.join(':')}-${key}`;
@@ -532,7 +525,7 @@ function beginWork(returnFiber) {
 }
 
 export const placementFiber = (fiber, index) => {
-	let parentHostFiber = findParentFiber(
+	const parentHostFiber = findParentFiber(
 		fiber,
 		(f) => Fiber.isHostFiber(f) || f.stateNode
 	);
@@ -547,9 +540,10 @@ export const placementFiber = (fiber, index) => {
 		return;
 	}
 
-	let preHostFiber = findPreConquerFiber(
+	const preHostFiber = findPreConquerFiber(
 		index,
-		(f) => Fiber.isHostFiber(f) && !f.isDescendantOf(fiber)
+		(f) =>
+			Fiber.isHostFiber(f) && !f.isInPortalScope && !f.isDescendantOf(fiber)
 	);
 
 	if (preHostFiber && preHostFiber.isDescendantOf(parentHostFiber)) {
@@ -604,7 +598,7 @@ export const childDeletionFiber = (returnFiber) => {
 
 function finishedWork(fiber) {
 	collectConquerFiber(fiber);
-	if (!fiber.inStateChangeScope) {
+	if (!fiber.isInStateChangeScope) {
 		return;
 	}
 
@@ -768,7 +762,7 @@ function collectPaths(targetElement, container, eventType) {
 
 	while (targetElement && targetElement !== container) {
 		// 收集
-		let elementProps = targetElement[elementPropsKey];
+		const elementProps = targetElement[elementPropsKey];
 
 		if (elementProps) {
 			// click -> onClick onClickCapture
