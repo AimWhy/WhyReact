@@ -134,10 +134,6 @@ const eventTypeMap = {
 	click: ['onClickCapture', 'onClick']
 };
 
-function getEventCallbackNameFromEventType(eventType) {
-	return eventTypeMap[eventType];
-}
-
 function collectPaths(targetElement, container, eventType) {
 	const paths = {
 		capture: [],
@@ -145,23 +141,21 @@ function collectPaths(targetElement, container, eventType) {
 	};
 
 	while (targetElement && targetElement !== container) {
+		const callbackNameList = eventTypeMap[eventType];
 		const elementProps = targetElement[elementPropsKey];
 
-		if (elementProps) {
+		if (elementProps && callbackNameList) {
 			// click -> onClick onClickCapture
-			const callbackNameList = getEventCallbackNameFromEventType(eventType);
-			if (callbackNameList) {
-				callbackNameList.forEach((callbackName, i) => {
-					const eventCallback = elementProps[callbackName];
-					if (eventCallback) {
-						if (i === 0) {
-							paths.capture.unshift(eventCallback);
-						} else {
-							paths.bubble.push(eventCallback);
-						}
+			callbackNameList.forEach((callbackName, i) => {
+				const eventCallback = elementProps[callbackName];
+				if (eventCallback) {
+					if (i === 0) {
+						paths.capture.unshift(eventCallback);
+					} else {
+						paths.bubble.push(eventCallback);
 					}
-				});
-			}
+				}
+			});
 		}
 		targetElement = targetElement.parentNode;
 	}
@@ -257,34 +251,6 @@ const eventCallback = (e) => {
 	}
 };
 
-const optionsModifierRE = /(?:Once|Passive|Capture)$/;
-export const parseEventName = (name) => {
-	let options = void 0;
-	if (optionsModifierRE.test(name)) {
-		options = {};
-		let m;
-		while ((m = name.match(optionsModifierRE))) {
-			name = name.slice(0, name.length - m[0].length);
-			options[m[0].toLowerCase()] = true;
-		}
-	}
-	const event = name.slice(2).toLowerCase();
-	return [event, options];
-};
-
-export const genCursorFix = () => {
-	const focusedElement = document.activeElement;
-	const start = focusedElement.selectionStart;
-	const end = focusedElement.selectionEnd;
-
-	// 重新定位焦点, 恢复选择位置
-	return () => {
-		focusedElement.focus();
-		focusedElement.selectionStart = start;
-		focusedElement.selectionEnd = end;
-	};
-};
-
 const domHostConfig = {
 	createInstance(type) {
 		const element = document.createElement(type);
@@ -294,7 +260,7 @@ const domHostConfig = {
 		return document.createTextNode(content);
 	},
 	toLast(child, container) {
-		container.insertBefore(child, null);
+		container.appendChild(child);
 	},
 	toFirst(child, container) {
 		container.insertBefore(child, container.firstChild);
@@ -306,7 +272,7 @@ const domHostConfig = {
 		container.insertBefore(child, reference.nextSibling);
 	},
 	removeChild(child) {
-		child.remove();
+		child.parentNode.removeChild(child);
 	},
 	commitTextUpdate(node, content) {
 		node.data = content;
@@ -317,7 +283,7 @@ const domHostConfig = {
 			const pValue = attrs[i + 1];
 
 			if (hostSpecialAttrSet.has(pKey)) {
-				domHostConfig.fixUnBubbleEvent(node, pKey, pValue);
+				domHostConfig.fixHostSpecial(node, pKey, pValue);
 			} else {
 				if (pValue === void 0) {
 					node.removeAttribute(pKey);
@@ -327,8 +293,8 @@ const domHostConfig = {
 			}
 		}
 	},
-	fixUnBubbleEvent(node, fullEventName, callback) {
-		const [eventName] = parseEventName(fullEventName);
+	fixHostSpecial(node, fullEventName, callback) {
+		const eventName = fullEventName.slice(2).toLowerCase();
 		const method =
 			callback === void 0 ? 'removeEventListener' : 'addEventListener';
 
@@ -343,6 +309,18 @@ const domHostConfig = {
 	},
 	updateInstanceProps(node, props) {
 		node[elementPropsKey] = props;
+	},
+	genRestoreDataFn() {
+		const focusedElement = document.activeElement;
+		const start = focusedElement.selectionStart;
+		const end = focusedElement.selectionEnd;
+
+		// 重新定位焦点, 恢复选择位置
+		this.restoreData = () => {
+			focusedElement.focus();
+			focusedElement.selectionStart = start;
+			focusedElement.selectionEnd = end;
+		};
 	}
 };
 
@@ -358,7 +336,7 @@ const genComponentInnerElement = (fiber) => {
 		ComponentGenMemo.has(fiber) &&
 		objectEqual(fiber.memoizedProps, fiber.pendingProps, true)
 	) {
-		dispatchHook(fiber, 'Retain');
+		// dispatchHook(fiber, 'Retain');
 		return ComponentGenMemo.get(fiber);
 	}
 
@@ -436,6 +414,7 @@ export class Fiber {
 	deletions = [];
 
 	flags = NoFlags;
+	subtreeFlags = NoFlags;
 
 	StateIndex = 0;
 	hookQueue = [];
@@ -464,7 +443,6 @@ export class Fiber {
 			}
 		} else {
 			const innerRootElement = genComponentInnerElement(this);
-
 			if (innerRootElement !== void 0) {
 				children = [].concat(innerRootElement);
 			}
@@ -531,13 +509,11 @@ export class Fiber {
 	}
 
 	isDescendantOf(returnFiber) {
-		return this.nodeKey.startsWith(
-			[...returnFiber.pKeys, returnFiber.key].join(':')
-		);
+		return this.nodeKey.startsWith(returnFiber.nodeKey);
 	}
 }
 Fiber.ExistPool = new Map();
-Fiber.genNodeKey = (key, pKeys = []) => `${pKeys.join(':')}-${key}`;
+Fiber.genNodeKey = (key, pKeys = []) => [...pKeys, key].join(':');
 Fiber.isTextFiber = (fiber) => fiber && fiber.type === 'text';
 Fiber.isHostFiber = (fiber) => fiber && typeof fiber.type === 'string';
 
@@ -558,6 +534,17 @@ export function* walkFiberTree(returnFiber) {
 	yield returnFiber;
 }
 
+function bubbleFlags(fiber) {
+	let subtreeFlags = NoFlags;
+
+	for (const child of walkChildFiber(fiber)) {
+		subtreeFlags |= child.subtreeFlags;
+		subtreeFlags |= child.flags;
+	}
+
+	fiber.subtreeFlags |= subtreeFlags;
+}
+
 export function createFiber(element, key, pKeys = []) {
 	const nodeKey = Fiber.genNodeKey(key, pKeys);
 
@@ -566,6 +553,8 @@ export function createFiber(element, key, pKeys = []) {
 		fiber.pendingProps = element.props;
 		fiber.flags &= Update;
 		fiber.flags |= MarkReusableFiber;
+		fiber.subtreeFlags = NoFlags;
+
 		fiber.deletions = [];
 
 		fiber.sibling = null;
@@ -579,9 +568,10 @@ export function createFiber(element, key, pKeys = []) {
 	return fiber;
 }
 
-const ConquerFiberQueue = [];
+let CollectingFiberQueue = [];
+let ConquerFiberQueue = [];
 const collectConquerFiber = (fiber) => {
-	ConquerFiberQueue.push(fiber);
+	CollectingFiberQueue.push(fiber);
 };
 
 const findPreConquerFiber = (index, checker = checkTrue) => {
@@ -655,63 +645,6 @@ function beginWork(returnFiber) {
 	return result;
 }
 
-export const placementFiber = (fiber, index) => {
-	const parentHostFiber = findParentFiber(
-		fiber,
-		(f) => Fiber.isHostFiber(f) || f.stateNode
-	);
-
-	if (!parentHostFiber) {
-		return;
-	}
-
-	// portal: __target
-	if (!Fiber.isHostFiber(parentHostFiber)) {
-		hostConfig.toLast(fiber.stateNode, parentHostFiber.stateNode);
-		return;
-	}
-
-	const preHostFiber = findPreConquerFiber(
-		index,
-		(f) =>
-			Fiber.isHostFiber(f) && !f.isInPortalScope && !f.isDescendantOf(fiber)
-	);
-
-	if (preHostFiber && preHostFiber.isDescendantOf(parentHostFiber)) {
-		hostConfig.toAfter(
-			fiber.stateNode,
-			parentHostFiber.stateNode,
-			preHostFiber.stateNode
-		);
-	} else {
-		hostConfig.toFirst(fiber.stateNode, parentHostFiber.stateNode);
-	}
-};
-
-export const updateHostFiber = (fiber) => {
-	if (Fiber.isTextFiber(fiber)) {
-		hostConfig.commitTextUpdate(fiber.stateNode, fiber.memoizedState);
-	} else {
-		hostConfig.commitInstanceUpdate(fiber.stateNode, fiber.memoizedState);
-	}
-};
-
-export const childDeletionFiber = (returnFiber) => {
-	queueMacrotask(() => {
-		for (const fiber of returnFiber.deletions) {
-			for (const f of walkFiberTree(fiber)) {
-				if (Fiber.isHostFiber(f)) {
-					hostConfig.removeChild(f.stateNode);
-				} else {
-					dispatchHook(f, 'UnMount');
-				}
-				Fiber.ExistPool.delete(f.nodeKey);
-			}
-		}
-		returnFiber.deletions = [];
-	});
-};
-
 function finishedWork(fiber) {
 	collectConquerFiber(fiber);
 	if (!fiber.isInStateChangeScope) {
@@ -771,6 +704,7 @@ function finishedWork(fiber) {
 		}
 	}
 
+	bubbleFlags(fiber);
 	fiber.memoizedProps = fiber.pendingProps;
 }
 
@@ -780,15 +714,76 @@ function* walkFiber(returnFiber) {
 	for (const fiber of fiberList) {
 		if (Fiber.isTextFiber(fiber)) {
 			finishedWork(fiber);
-			yield fiber;
+			if (fiber.subtreeFlags !== NoFlags) {
+				yield fiber;
+			}
 		} else {
 			yield* walkFiber(fiber);
 		}
 	}
 
 	finishedWork(returnFiber);
-	yield returnFiber;
+	if (returnFiber.subtreeFlags !== NoFlags) {
+		yield returnFiber;
+	}
 }
+
+export const placementFiber = (fiber, index) => {
+	const parentHostFiber = findParentFiber(
+		fiber,
+		(f) => Fiber.isHostFiber(f) || f.stateNode
+	);
+
+	if (!parentHostFiber) {
+		return;
+	}
+
+	// 它是一个 portal: 用带有 __target 指向的 stateNode
+	if (!Fiber.isHostFiber(parentHostFiber)) {
+		hostConfig.toLast(fiber.stateNode, parentHostFiber.stateNode);
+		return;
+	}
+
+	const preHostFiber = findPreConquerFiber(
+		index,
+		(f) =>
+			Fiber.isHostFiber(f) && !f.isInPortalScope && !f.isDescendantOf(fiber)
+	);
+
+	if (preHostFiber && preHostFiber.isDescendantOf(parentHostFiber)) {
+		hostConfig.toAfter(
+			fiber.stateNode,
+			parentHostFiber.stateNode,
+			preHostFiber.stateNode
+		);
+	} else {
+		hostConfig.toFirst(fiber.stateNode, parentHostFiber.stateNode);
+	}
+};
+
+export const updateHostFiber = (fiber) => {
+	if (Fiber.isTextFiber(fiber)) {
+		hostConfig.commitTextUpdate(fiber.stateNode, fiber.memoizedState);
+	} else {
+		hostConfig.commitInstanceUpdate(fiber.stateNode, fiber.memoizedState);
+	}
+};
+
+export const childDeletionFiber = (returnFiber) => {
+	queueMacrotask(() => {
+		for (const fiber of returnFiber.deletions) {
+			for (const f of walkFiberTree(fiber)) {
+				if (Fiber.isHostFiber(f)) {
+					hostConfig.removeChild(f.stateNode);
+				} else {
+					// dispatchHook(f, 'UnMount');
+				}
+				Fiber.ExistPool.delete(f.nodeKey);
+			}
+		}
+		returnFiber.deletions = [];
+	});
+};
 
 const commitRoot = () => {
 	let i = 0;
@@ -807,7 +802,7 @@ const commitRoot = () => {
 			} else {
 				const hookName =
 					(fiber.flags & MarkReusableFiber) !== NoFlags ? 'Placement' : 'Mount';
-				dispatchHook(fiber, hookName);
+				// dispatchHook(fiber, hookName);
 			}
 
 			fiber.flags &= ~Placement;
@@ -817,7 +812,7 @@ const commitRoot = () => {
 			if (Fiber.isHostFiber(fiber)) {
 				updateHostFiber(fiber);
 			} else {
-				dispatchHook(fiber, 'Update');
+				// dispatchHook(fiber, 'Update');
 			}
 			fiber.flags &= ~Update;
 		}
@@ -834,34 +829,38 @@ const commitRoot = () => {
 	ConquerFiberQueue.length = 0;
 };
 
+let __rootFiber = null;
+export const getRootFiber = () => __rootFiber;
+
 const renderSetFiber = new Set();
 function forceRender() {
-	const cursorFix = genCursorFix();
-
-	for (const fiber of renderSetFiber) {
-		fiber.flags |= Update;
-	}
-
-	innerRender(getRootFiber());
-	cursorFix();
+	queueMacrotask(() => {
+		hostConfig.genRestoreDataFn();
+		innerRender();
+	});
 }
 
 export const pushRenderFiber = (fiber) => {
+	fiber.flags |= Update;
 	renderSetFiber.add(fiber);
+
 	queueMicrotaskOnce(forceRender);
 };
 
-export const innerRender = (renderRootFiber) => {
-	for (const fiber of walkFiber(renderRootFiber)) {
-		if (!Fiber.isHostFiber(fiber)) {
-			dispatchHook(fiber, 'Effect', true);
-		}
+export const innerRender = () => {
+	for (const _ of walkFiber(__rootFiber)) {
+		// _
 	}
-	commitRoot(renderRootFiber);
-};
 
-let __rootFiber = null;
-export const getRootFiber = () => __rootFiber;
+	ConquerFiberQueue = CollectingFiberQueue;
+	CollectingFiberQueue = [];
+	queueMacrotask(() => {
+		commitRoot();
+		if (hostConfig.restoreData) {
+			hostConfig.restoreData();
+		}
+	});
+};
 
 export const createRoot = (container) => {
 	const key = container.id || (Date.now() + Math.random()).toString(36);
@@ -881,7 +880,7 @@ export const createRoot = (container) => {
 			);
 			rootFiber.flags |= Update;
 			__rootFiber = rootFiber;
-			innerRender(rootFiber);
+			innerRender();
 		}
 	};
 };
