@@ -29,7 +29,6 @@ function Hello(props, { useState }) {
 			<input
 				type="text"
 				value={state}
-				onBlur={() => alert(1)}
 				onInput={(e) => {
 					props.parentChange((v) => !v);
 					setState(e.target.value);

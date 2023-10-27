@@ -87,44 +87,58 @@ export const queueMicrotaskOnce = (func) => {
 	}
 };
 
-let isMessageLoopRunning = false;
-const scheduledCallbackQueue = [];
-const frameYieldMs = 8;
-const channel = new MessageChannel();
+const genQueueMacrotask = () => {
+	let isMessageLoopRunning = false;
+	const scheduledCallbackQueue = [];
+	const frameYieldMs = 8;
+	const channel = new MessageChannel();
 
-channel.port1.onmessage = function performWork() {
-	const startTime = performance.now();
-	console.count('queueMacrotask');
+	channel.port1.onmessage = function performWork() {
+		const startTime = performance.now();
+		console.count('queueMacrotask');
 
-	if (scheduledCallbackQueue.length) {
-		try {
-			let timeElapsed = 0;
-			while (timeElapsed < frameYieldMs && scheduledCallbackQueue.length) {
-				const work = scheduledCallbackQueue.shift();
-				work();
-				timeElapsed = performance.now() - startTime;
+		if (scheduledCallbackQueue.length) {
+			let next;
+			try {
+				let timeElapsed = 0;
+				while (timeElapsed < frameYieldMs && scheduledCallbackQueue.length) {
+					const work = scheduledCallbackQueue.shift();
+					next = work({
+						get didTimeout() {
+							return performance.now() - startTime > frameYieldMs;
+						}
+					});
+					timeElapsed = performance.now() - startTime;
+				}
+			} finally {
+				if (next !== void 0) {
+					scheduledCallbackQueue.unshift(next);
+				}
+				if (scheduledCallbackQueue.length) {
+					schedulePerform();
+				} else {
+					isMessageLoopRunning = false;
+				}
 			}
-		} finally {
-			if (scheduledCallbackQueue.length) {
-				schedulePerform();
-			} else {
-				isMessageLoopRunning = false;
-			}
+		} else {
+			isMessageLoopRunning = false;
 		}
-	} else {
-		isMessageLoopRunning = false;
-	}
+	};
+
+	const schedulePerform = () => channel.port2.postMessage(null);
+
+	return (callback) => {
+		scheduledCallbackQueue.push(callback);
+		if (!isMessageLoopRunning) {
+			isMessageLoopRunning = true;
+			schedulePerform();
+		}
+	};
 };
 
-const schedulePerform = () => channel.port2.postMessage(null);
+const queueMacrotask = genQueueMacrotask();
 
-export const queueMacrotask = (callback) => {
-	scheduledCallbackQueue.push(callback);
-	if (!isMessageLoopRunning) {
-		isMessageLoopRunning = true;
-		schedulePerform();
-	}
-};
+const otherQueueMacrotask = genQueueMacrotask();
 
 export const elementPropsKey = '__props';
 
@@ -324,7 +338,7 @@ const domHostConfig = {
 	}
 };
 
-/* #regionend 事件相关 */
+/* #region-end 事件相关 */
 
 const hostConfig = domHostConfig;
 
@@ -357,7 +371,7 @@ const genComponentInnerElement = (fiber) => {
 export const useState = (initialState) => {
 	const fiber = workInProgress;
 	const innerIndex = fiber.StateIndex++;
-	const { hookQueue, forceRender } = fiber;
+	const { hookQueue, rerender } = fiber;
 
 	if (hookQueue.length <= innerIndex) {
 		const state =
@@ -369,7 +383,7 @@ export const useState = (initialState) => {
 				newState = newState(oldState);
 			}
 			hookQueue[innerIndex].state = newState;
-			forceRender();
+			rerender();
 		};
 
 		hookQueue[innerIndex] = { state, dispatch };
@@ -419,7 +433,7 @@ export class Fiber {
 	StateIndex = 0;
 	hookQueue = [];
 
-	forceRender = () => {
+	rerender = () => {
 		pushRenderFiber(this);
 	};
 
@@ -747,7 +761,7 @@ export const placementFiber = (fiber, index) => {
 	const preHostFiber = findPreConquerFiber(
 		index,
 		(f) =>
-			Fiber.isHostFiber(f) && !f.isInPortalScope && !f.isDescendantOf(fiber)
+			Fiber.isHostFiber(f) && !f.isDescendantOf(fiber) && !f.isInPortalScope
 	);
 
 	if (preHostFiber && preHostFiber.isDescendantOf(parentHostFiber)) {
@@ -770,13 +784,13 @@ export const updateHostFiber = (fiber) => {
 };
 
 export const childDeletionFiber = (returnFiber) => {
-	queueMacrotask(() => {
+	otherQueueMacrotask(() => {
 		for (const fiber of returnFiber.deletions) {
 			for (const f of walkFiberTree(fiber)) {
 				if (Fiber.isHostFiber(f)) {
 					hostConfig.removeChild(f.stateNode);
 				} else {
-					// dispatchHook(f, 'UnMount');
+					dispatchHook(f, 'UnMount');
 				}
 				Fiber.ExistPool.delete(f.nodeKey);
 			}
@@ -802,7 +816,7 @@ const commitRoot = () => {
 			} else {
 				const hookName =
 					(fiber.flags & MarkReusableFiber) !== NoFlags ? 'Placement' : 'Mount';
-				// dispatchHook(fiber, hookName);
+				dispatchHook(fiber, hookName);
 			}
 
 			fiber.flags &= ~Placement;
@@ -832,34 +846,42 @@ const commitRoot = () => {
 let __rootFiber = null;
 export const getRootFiber = () => __rootFiber;
 
-const renderSetFiber = new Set();
 function forceRender() {
-	queueMacrotask(() => {
-		hostConfig.genRestoreDataFn();
-		innerRender();
-	});
-}
-
-export const pushRenderFiber = (fiber) => {
-	fiber.flags |= Update;
-	renderSetFiber.add(fiber);
-
-	queueMicrotaskOnce(forceRender);
-};
-
-export const innerRender = () => {
-	for (const _ of walkFiber(__rootFiber)) {
-		// _
-	}
-
-	ConquerFiberQueue = CollectingFiberQueue;
-	CollectingFiberQueue = [];
+	hostConfig.genRestoreDataFn();
+	queueMacrotask(innerRender);
 	queueMacrotask(() => {
 		commitRoot();
 		if (hostConfig.restoreData) {
 			hostConfig.restoreData();
 		}
 	});
+}
+
+export const pushRenderFiber = (fiber) => {
+	fiber.flags |= Update;
+	queueMicrotaskOnce(forceRender);
+};
+
+let fiberGenerator = null;
+export const innerRender = (deadline) => {
+	if (!fiberGenerator) {
+		fiberGenerator = walkFiber(__rootFiber);
+	}
+
+	let taskObj;
+	do {
+		taskObj = fiberGenerator.next();
+		if (taskObj.done) {
+			fiberGenerator = null;
+		} else {
+			if (deadline.didTimeout) {
+				return innerRender;
+			}
+		}
+	} while (!taskObj.done);
+
+	ConquerFiberQueue = CollectingFiberQueue;
+	CollectingFiberQueue = [];
 };
 
 export const createRoot = (container) => {
@@ -880,7 +902,7 @@ export const createRoot = (container) => {
 			);
 			rootFiber.flags |= Update;
 			__rootFiber = rootFiber;
-			innerRender();
+			forceRender();
 		}
 	};
 };
