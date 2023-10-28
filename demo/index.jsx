@@ -1,4 +1,4 @@
-import { createRoot, useState } from './abc';
+import { createRoot, useReducer } from './abc';
 
 const random = (max) => Math.round(Math.random() * 1000) % max;
 
@@ -29,7 +29,6 @@ const A = [
 	'expensive',
 	'fancy'
 ];
-
 const C = [
 	'red',
 	'yellow',
@@ -43,7 +42,6 @@ const C = [
 	'black',
 	'orange'
 ];
-
 const N = [
 	'table',
 	'chair',
@@ -77,181 +75,174 @@ const buildData = (count) => {
 	return data;
 };
 
-const initialState = { data: buildData(10) };
+const initialState = { data: [], selected: 0 };
 
-function Row(props) {
-	let onSelect = () => {
-		const { item, dispatch } = props;
-		dispatch({ type: 'SELECT', id: item.id });
-	};
+const listReducer = (state, action) => {
+	const { data, selected } = state;
 
-	let onRemove = () => {
-		const { item, dispatch } = props;
-		dispatch({ type: 'REMOVE', id: item.id });
-	};
-	const { item } = props;
+	switch (action.type) {
+		case 'RUN':
+			return { data: buildData(1000), selected: 0 };
+		case 'RUN_LOTS':
+			return { data: buildData(10000), selected: 0 };
+		case 'ADD':
+			return { data: data.concat(buildData(1000)), selected };
+		case 'UPDATE': {
+			const newData = data.slice(0);
 
-	return (
-		<tr>
-			<td className="col-md-1">{item.id}</td>
-			<td className="col-md-4">
-				<a onClick={onSelect}>{item.label}</a>
-				<div className="wanghongying">
+			for (let i = 0; i < newData.length; i += 10) {
+				const r = newData[i];
+
+				newData[i] = { id: r.id, label: r.label + ' !!!' };
+			}
+
+			return { data: newData, selected };
+		}
+		case 'CLEAR':
+			return { data: [], selected: 0 };
+		case 'SWAP_ROWS':
+			return data.length > 998
+				? {
+						data: [
+							data[0],
+							data[998],
+							...data.slice(2, 998),
+							data[1],
+							data[999]
+						],
+						selected
+				  }
+				: state;
+		case 'REMOVE': {
+			const idx = data.findIndex((d) => d.id === action.id);
+
+			return {
+				data: [...data.slice(0, idx), ...data.slice(idx + 1)],
+				selected
+			};
+		}
+		case 'SELECT':
+			return { data, selected: action.id };
+		default:
+			return state;
+	}
+};
+
+const Row = ({ selected, item, dispatch }) => (
+	<tr className={selected ? 'danger' : ''}>
+		<td className="col-md-1">{item.id}</td>
+		<td className="col-md-4">
+			<a onClick={() => dispatch({ type: 'SELECT', id: item.id })}>
+				{item.label}
+			</a>
+		</td>
+
+		<td className="col-md-4">
+			<a>{item.label}</a>
+			<div className="fdsa">
+				<span>
+					<i>33333</i>
+				</span>
+			</div>
+		</td>
+		<td className="col-md-4">
+			<a>{item.label}</a>
+			<div className="feeee">
+				<div>
+					<i>离开家了</i>
+				</div>
+				<div className="abc">
 					<span>
-						<i>33333</i>
+						<i>流口水接待来访</i>
 					</span>
-				</div>
-			</td>
-			<td className="col-md-4">
-				<a onClick={onSelect}>{item.label}</a>
-				<div className="wanghongying">
-					<span>
-						<i>33333</i>
-					</span>
-				</div>
-			</td>
-			<td className="col-md-4">
-				<a onClick={onSelect}>{item.label}</a>
-				<div className="wanghongying">
-					<span>
-						<i>33333</i>
-					</span>
-				</div>
-			</td>
-			<td className="col-md-1">
-				<a onClick={onRemove}>删除</a>
-			</td>
-			<td className="col-md-6" />
-		</tr>
-	);
-}
-
-function Button(props) {
-	const { id, cb, title } = props;
-
-	return (
-		<div className="col-sm-6 smallpad">
-			<button
-				type="button"
-				className="btn btn-primary btn-block"
-				id={id}
-				onClick={cb}
-			>
-				{title}
-			</button>
-		</div>
-	);
-}
-
-function Jumbotron(props) {
-	const { dispatch } = props;
-
-	return (
-		<div className="jumbotron" key="jum">
-			<div className="row">
-				<div className="col-md-6">
-					<h1>React keyed</h1>
-				</div>
-				<div className="col-md-6">
-					<div className="row">
-						<Button
-							id="run"
-							title="Create 2,000 rows"
-							cb={() => dispatch({ type: 'RUN' })}
-						/>
-						<Button
-							id="runlots"
-							title="Create 10,000 rows"
-							cb={() => dispatch({ type: 'RUN_LOTS' })}
-						/>
-						<Button
-							id="add"
-							title="Append 1,000 rows"
-							cb={() => dispatch({ type: 'ADD' })}
-						/>
-						<Button
-							id="update"
-							title="Update every 10th row"
-							cb={() => dispatch({ type: 'UPDATE' })}
-						/>
-						<Button
-							id="clear"
-							title="Clear"
-							cb={() => dispatch({ type: 'CLEAR' })}
-						/>
-						<Button
-							id="swaprows"
-							title="Swap Rows"
-							cb={() => dispatch({ type: 'SWAP_ROWS' })}
-						/>
+					<div>
+						<div>
+							<div>
+								<div>
+									<i>吉林省快递发了</i>
+								</div>
+							</div>
+						</div>
 					</div>
 				</div>
 			</div>
+		</td>
+		<td className="col-md-4">
+			<a>{item.label}</a>
+			<div className="abc">
+				<span>
+					<i>是弟弟水电费</i>
+				</span>
+			</div>
+		</td>
+
+		<td className="col-md-1">
+			<a onClick={() => dispatch({ type: 'REMOVE', id: item.id })}>
+				<div>删除</div>
+			</a>
+		</td>
+	</tr>
+);
+
+const Button = ({ id, cb, title }) => (
+	<div className="col-sm-6 smallpad">
+		<button
+			type="button"
+			className="btn btn-primary btn-block"
+			id={id}
+			onClick={cb}
+		>
+			{title}
+		</button>
+	</div>
+);
+
+const Jumbotron = ({ dispatch }) => (
+	<div className="jumbotron">
+		<div className="row">
+			<div className="col-md-6">
+				<h1>React Hooks keyed</h1>
+			</div>
+			<div className="col-md-6">
+				<div className="row">
+					<Button
+						id="run"
+						title="Create 1,000 rows"
+						cb={() => dispatch({ type: 'RUN' })}
+					/>
+					<Button
+						id="runlots"
+						title="Create 10,000 rows"
+						cb={() => dispatch({ type: 'RUN_LOTS' })}
+					/>
+					<Button
+						id="add"
+						title="Append 1,000 rows"
+						cb={() => dispatch({ type: 'ADD' })}
+					/>
+					<Button
+						id="update"
+						title="Update every 10th row"
+						cb={() => dispatch({ type: 'UPDATE' })}
+					/>
+					<Button
+						id="clear"
+						title="Clear"
+						cb={() => dispatch({ type: 'CLEAR' })}
+					/>
+					<Button
+						id="swaprows"
+						title="Swap Rows"
+						cb={() => dispatch({ type: 'SWAP_ROWS' })}
+					/>
+				</div>
+			</div>
 		</div>
-	);
-}
+	</div>
+);
 
-let outerDispatch = null;
-function Main(props) {
-	let [state, setState] = useState(initialState);
-	let dispatch =
-		outerDispatch ||
-		function (setState, action) {
-			switch (action.type) {
-				case 'RUN':
-					return setState({ data: buildData(2000) });
-				case 'RUN_LOTS':
-					return setState({ data: buildData(10000) });
-				case 'ADD':
-					return setState(({ data }) => ({
-						data: data.concat(buildData(1000))
-					}));
-				case 'UPDATE': {
-					return setState(({ data }) => {
-						const newData = data.slice(0);
-
-						for (let i = 0; i < newData.length; i += 10) {
-							const r = newData[i];
-
-							newData[i] = { id: r.id, label: r.label + ' !!!' };
-						}
-
-						return { data: newData };
-					});
-				}
-				case 'CLEAR':
-					return setState({ data: [] });
-				case 'SWAP_ROWS': {
-					return setState(({ data }) => {
-						if (data.length > 8) {
-							return {
-								data: [
-									data[0],
-									data[1],
-									data[8],
-									...data.slice(3, 8),
-									data[2],
-									data[9]
-								]
-							};
-						}
-						return { data };
-					});
-				}
-				case 'REMOVE': {
-					return setState(({ data }) => {
-						const idx = data.findIndex((d) => d.id === action.id);
-						return {
-							data: [...data.slice(0, idx), ...data.slice(idx + 1)]
-						};
-					});
-				}
-				case 'SELECT':
-					return;
-			}
-		}.bind(null, setState);
-	outerDispatch = dispatch;
-	const { data } = state;
+const Main = () => {
+	const [{ data, selected }, dispatch] = useReducer(listReducer, initialState);
 
 	return (
 		<div className="container">
@@ -259,7 +250,12 @@ function Main(props) {
 			<table className="table table-hover table-striped test-data">
 				<tbody>
 					{data.map((item) => (
-						<Row key={item.id} item={item} dispatch={dispatch} />
+						<Row
+							key={item.id}
+							item={item}
+							selected={selected === item.id}
+							dispatch={dispatch}
+						/>
 					))}
 				</tbody>
 			</table>
@@ -269,6 +265,6 @@ function Main(props) {
 			/>
 		</div>
 	);
-}
+};
 
 createRoot(document.querySelector('#app')).render(<Main />);

@@ -10,7 +10,7 @@ const NoFlags = 0b0000000;
 const Placement = 0b0000001;
 const Update = 0b0000010;
 const ChildDeletion = 0b0000100;
-const Ref = 0b001000;
+const MarkRef = 0b001000;
 const MarkReusableFiber = 0b010000;
 
 const checkTrue = () => true;
@@ -141,7 +141,7 @@ const queueMacrotask = genQueueMacrotask('main-macro-task');
 
 const otherQueueMacrotask = genQueueMacrotask('other-macro-task');
 
-export const elementPropsKey = '__props';
+const elementPropsKey = '__props';
 
 /* #region 事件相关 */
 
@@ -223,7 +223,7 @@ function dispatchEvent(container, eventType, e) {
 	}
 }
 
-export function initEvent(container, eventType) {
+function initEvent(container, eventType) {
 	container.addEventListener(eventType, (e) => {
 		dispatchEvent(container, eventType, e);
 	});
@@ -267,6 +267,13 @@ const eventCallback = (e) => {
 };
 
 const domHostConfig = {
+	toAttrName(key) {
+		return (
+			{
+				className: 'class'
+			}[key] || key
+		);
+	},
 	createInstance(type) {
 		const element = document.createElement(type);
 		return element;
@@ -300,10 +307,11 @@ const domHostConfig = {
 			if (hostSpecialAttrSet.has(pKey)) {
 				domHostConfig.fixHostSpecial(node, pKey, pValue);
 			} else {
+				const attrName = hostConfig.toAttrName(pKey);
 				if (pValue === void 0) {
-					node.removeAttribute(pKey);
+					node.removeAttribute(attrName);
 				} else {
-					node.setAttribute(pKey, pValue);
+					node.setAttribute(attrName, pValue);
 				}
 			}
 		}
@@ -369,7 +377,7 @@ const genComponentInnerElement = (fiber) => {
 	return result;
 };
 
-export const useState = (initialState) => {
+export const useReducer = (reducer, initialState) => {
 	const fiber = workInProgress;
 	const innerIndex = fiber.StateIndex++;
 	const { hookQueue, rerender } = fiber;
@@ -378,11 +386,8 @@ export const useState = (initialState) => {
 		const state =
 			typeof initialState === 'function' ? initialState() : initialState;
 
-		const dispatch = (newState) => {
-			if (typeof newState === 'function') {
-				const oldState = hookQueue[innerIndex].state;
-				newState = newState(oldState);
-			}
+		const dispatch = (action) => {
+			const newState = reducer(hookQueue[innerIndex].state, action);
 			hookQueue[innerIndex].state = newState;
 			rerender();
 		};
@@ -391,6 +396,12 @@ export const useState = (initialState) => {
 	}
 
 	return [hookQueue[innerIndex].state, hookQueue[innerIndex].dispatch];
+};
+
+export const useState = (initialState) => {
+	return useReducer((state, action) => {
+		return typeof action === 'function' ? action(state) : action;
+	}, initialState);
 };
 
 export const useFiber = () => {
@@ -558,7 +569,7 @@ function* walkChildFiber(returnFiber) {
 	}
 }
 
-export function* walkFiberTree(returnFiber) {
+function* walkFiberTree(returnFiber) {
 	let fiber = returnFiber.child;
 	while (fiber) {
 		yield* walkFiberTree(fiber);
@@ -578,7 +589,7 @@ function bubbleFlags(fiber) {
 	fiber.subtreeFlags |= subtreeFlags;
 }
 
-export function createFiber(element, key, pNodeKey = '') {
+function createFiber(element, key, pNodeKey = '') {
 	const nodeKey = Fiber.genNodeKey(key, pNodeKey);
 
 	if (Fiber.ExistPool.has(nodeKey)) {
@@ -696,7 +707,7 @@ function finishedWork(fiber) {
 			newRef && newRef(instance);
 		};
 
-		fiber.flags |= Ref;
+		fiber.flags |= MarkRef;
 	}
 
 	if (Fiber.isTextFiber(fiber)) {
@@ -881,14 +892,14 @@ const commitRoot = () => {
 			fiber.flags &= ~Placement;
 		}
 
-		if ((fiber.flags & Ref) !== NoFlags) {
+		if ((fiber.flags & MarkRef) !== NoFlags) {
 			if (Fiber.isHostFiber(fiber)) {
 				fiber.ref(fiber.stateNode);
 			} else {
 				fiber.ref(fiber);
 			}
 
-			fiber.flags &= ~Ref;
+			fiber.flags &= ~MarkRef;
 		}
 
 		fiber.flags = NoFlags;
