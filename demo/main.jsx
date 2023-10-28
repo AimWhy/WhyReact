@@ -1,8 +1,12 @@
-import { createRoot, Fragment as Fragment1 } from './abc';
+import { createRoot, Fragment as Fragment1, useState, useFiber } from './abc';
 
-function Hello(props, { useState }) {
+function Hello(props) {
 	const [state, setState] = useState('aimwhy');
 	const [state2, setState2] = useState('tt');
+
+	// useFiber().onMounted.add(() => {
+	// 	alert(1);
+	// });
 
 	// useEffect(() => {
 	// 	console.log('%c Hello Mounted', 'color:#0f0;');
@@ -24,9 +28,12 @@ function Hello(props, { useState }) {
 	return (
 		<>
 			{props.children()}
-			{state}
+			<div>{state}</div>
 			<div>{state2}</div>
 			<input
+				ref={(dom) => {
+					window.a = dom;
+				}}
 				type="text"
 				value={state}
 				onInput={(e) => {
@@ -39,8 +46,14 @@ function Hello(props, { useState }) {
 	);
 }
 
-function World(props, { useState }) {
+function World(props) {
 	const [state, setState] = useState('点击我');
+	useFiber().onMounted.add(() => {
+		console.log('%c World onMounted', 'color:#0f0;');
+		return () => {
+			console.log('%c World onUnMounted', 'color:#0f0;');
+		};
+	});
 
 	// useEffect(() => {
 	// 	console.log('%c World Mounted', 'color:#0f0;');
@@ -53,21 +66,12 @@ function World(props, { useState }) {
 	// 	console.log('%c World Update', 'color:#990;');
 	// });
 
-	return (
-		<div
-			onClickOnce={(e) => {
-				setState((v) => v + 2);
-				e.stopPropagation();
-			}}
-		>
-			{state}
-		</div>
-	);
+	return <div>{state}</div>;
 }
 
 const memo = () => <i>i {5555}</i>;
 
-function App(props, { useState }) {
+function App(props) {
 	const [state, setState] = useState(true);
 	const [state2, setState2] = useState(true);
 
@@ -91,6 +95,11 @@ function App(props, { useState }) {
 			>
 				点击事件
 			</button>
+
+			<Fragment1 key="lkjsdflkj" __target={state ? document.body : void 0}>
+				<div>倪玲玲是个</div>
+			</Fragment1>
+
 			<Fragment1 key="88">
 				<div>Fragment</div>
 			</Fragment1>
@@ -111,7 +120,15 @@ function App(props, { useState }) {
 				{memo}
 			</Hello>
 
-			{state ? <World /> : <div>销毁后的文案</div>}
+			{state ? (
+				<World
+					ref={(dom) => {
+						window.b = dom;
+					}}
+				/>
+			) : (
+				<div>销毁后的文案</div>
+			)}
 
 			{['github!', null, ' aimwhy']}
 		</Fragment1>

@@ -1,4 +1,4 @@
-import { createRoot } from './abc';
+import { createRoot, useState } from './abc';
 
 const random = (max) => Math.round(Math.random() * 1000) % max;
 
@@ -192,7 +192,7 @@ function Jumbotron(props) {
 }
 
 let outerDispatch = null;
-function Main(props, { useState }) {
+function Main(props) {
 	let [state, setState] = useState(initialState);
 	let dispatch =
 		outerDispatch ||
