@@ -326,9 +326,9 @@ const domHostConfig = {
 			node[method]('compositionend', onCompositionEnd);
 			node[method]('change', onCompositionEnd);
 			node[method]('input', onInputFixed);
+		} else {
+			node[method](eventName, eventCallback);
 		}
-
-		node[method](eventName, eventCallback);
 	},
 	updateInstanceProps(node, props) {
 		node[elementPropsKey] = props;
@@ -404,12 +404,107 @@ export const useState = (initialState) => {
 	}, initialState);
 };
 
+export const createContext = (initialState) => {
+	return {
+		Provider: (props) => {
+			const fiber = useFiber();
+			const { value, children } = props;
+			if (value === void 0) {
+				fiber.pendingProps.value = initialState;
+			}
+
+			fiber.memoizedState ||= new Set();
+			fiber.memoizedState.forEach((f) => {
+				f.flags |= Update;
+			});
+			fiber.memoizedState.clear();
+
+			return children;
+		}
+	};
+};
+
+export const useContext = (context) => {
+	const fiber = workInProgress;
+	const providerFiber = findParentFiber(
+		fiber,
+		(f) => f.type === context.Provider
+	);
+	providerFiber.memoizedState.add(fiber);
+
+	return providerFiber.pendingProps.value;
+};
+
+export const useEffect = (func, dep) => {
+	const fiber = workInProgress;
+	const innerIndex = fiber.StateIndex++;
+	const { hookQueue } = fiber;
+
+	if (hookQueue.length <= innerIndex) {
+		if (Array.isArray(dep)) {
+			if (!dep.length) {
+				workInProgress.onMounted.add(func);
+			} else {
+				workInProgress.onUpdated.add(func);
+			}
+		} else if (Number.isNaN(dep)) {
+			workInProgress.onBeforeMove.add(func);
+		} else {
+			workInProgress.onUpdated.add(func);
+		}
+		hookQueue[innerIndex] = { func, dep };
+	} else {
+		const { dep: oldDep, func: oldFunc } = hookQueue[innerIndex];
+		if (
+			Array.isArray(dep) &&
+			Array.isArray(oldDep) &&
+			dep.length &&
+			oldDep.length
+		) {
+			workInProgress.onUpdated.delete(oldFunc);
+
+			if (!objectEqual(oldDep, dep)) {
+				hookQueue[innerIndex] = { func, dep };
+				workInProgress.onUpdated.add(func);
+			}
+		}
+	}
+};
+
+const checkIfSnapshotChanged = ({ value, getSnapshot }) => {
+	try {
+		return value !== getSnapshot();
+	} catch {
+		return true;
+	}
+};
+export const useSyncExternalStore = (subscribe, getSnapshot) => {
+	const value = getSnapshot();
+	const [{ inst }, forceUpdate] = useState({
+		inst: { value, getSnapshot }
+	});
+
+	useEffect(() => {
+		if (checkIfSnapshotChanged(inst)) {
+			forceUpdate({ inst });
+		}
+
+		return subscribe(function handleStoreChange() {
+			if (checkIfSnapshotChanged(inst)) {
+				forceUpdate({ inst });
+			}
+		});
+	}, [subscribe]);
+
+	return value;
+};
+
 export const useFiber = () => {
 	return workInProgress;
 };
 
 const dispatchHook = (fiber, hookName, async) => {
-	console.log(`dispatch Component-${hookName}`, fiber.nodeKey);
+	// console.log(`dispatch Component-${hookName}`, fiber.nodeKey);
 
 	if (fiber[hookName].size === 0) {
 		return;
@@ -418,8 +513,16 @@ const dispatchHook = (fiber, hookName, async) => {
 	const runner = () => {
 		for (const hook of fiber[hookName]) {
 			const destroy = hook(fiber);
-			if (hookName === 'onMounted') {
-				fiber.onUnMounted.add(destroy);
+			if (typeof destroy === 'function') {
+				const cleanName = {
+					onBeforeMove: 'onMoved',
+					onMounted: 'onUnMounted',
+					onUpdated: 'onBeforeUpdate'
+				}[hookName];
+
+				if (fiber[cleanName]) {
+					fiber[cleanName].add(destroy);
+				}
 			}
 		}
 	};
@@ -438,7 +541,7 @@ class Fiber {
 	type = null;
 	pendingProps = {};
 	memoizedProps = {};
-	memoizedState = [];
+	memoizedState = null;
 
 	_index = 0;
 	oldIndex = -1;
@@ -459,7 +562,9 @@ class Fiber {
 	onSetup = new Set();
 	onMounted = new Set();
 	onUnMounted = new Set();
+	onBeforeUpdate = new Set();
 	onUpdated = new Set();
+	onBeforeMove = new Set();
 	onMoved = new Set();
 
 	rerender = () => {
@@ -873,6 +978,7 @@ const commitRoot = () => {
 			if (Fiber.isHostFiber(fiber)) {
 				updateHostFiber(fiber);
 			} else {
+				dispatchHook(fiber, 'onBeforeUpdate');
 				dispatchHook(fiber, 'onUpdated', true);
 			}
 			fiber.flags &= ~Update;
@@ -883,9 +989,11 @@ const commitRoot = () => {
 				placementFiber(fiber, i);
 			} else {
 				if ((fiber.flags & MarkReusableFiber) !== NoFlags) {
+					dispatchHook(fiber, 'onBeforeMove');
 					dispatchHook(fiber, 'onMoved', true);
 				} else {
 					dispatchHook(fiber, 'onMounted', true);
+					dispatchHook(fiber, 'onUpdated', true);
 				}
 			}
 

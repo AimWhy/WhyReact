@@ -1,29 +1,23 @@
-import { createRoot, Fragment as Fragment1, useState, useFiber } from './abc';
+import { createRoot, Fragment as Fragment1, useState, useEffect } from './abc';
 
 function Hello(props) {
 	const [state, setState] = useState('aimwhy');
 	const [state2, setState2] = useState('tt');
 
-	// useFiber().onMounted.add(() => {
-	// 	alert(1);
-	// });
+	useEffect(() => {
+		console.log('%c Hello Mounted', 'color:#0f0;');
+	}, []);
 
-	// useEffect(() => {
-	// 	console.log('%c Hello Mounted', 'color:#0f0;');
-	// 	return () => {
-	// 		console.log('%c Hello UnMounted', 'color:#0f0;');
-	// 	};
-	// }, []);
+	useEffect(() => {
+		console.log('%c Hello Update', 'color:red;');
+	});
 
-	// useEffect(() => {
-	// 	console.log('%c Hello Update', 'color:#990;');
-	// });
-	// useEffect(
-	// 	(cur, pre) => {
-	// 		console.log(cur, pre, '%c Hello Dep Update', 'color:#990;');
-	// 	},
-	// 	[window.a]
-	// );
+	useEffect(
+		(cur, pre) => {
+			console.log('%c Hello Dep Update', 'color:#990;');
+		},
+		[window.a]
+	);
 
 	return (
 		<>
@@ -32,11 +26,12 @@ function Hello(props) {
 			<div>{state2}</div>
 			<input
 				ref={(dom) => {
-					window.a = dom;
+					window.abc = dom;
 				}}
 				type="text"
 				value={state}
 				onInput={(e) => {
+					console.log('onInput');
 					props.parentChange((v) => !v);
 					setState(e.target.value);
 					setState2(() => 'tt' + e.target.value.slice(-3));
@@ -48,23 +43,13 @@ function Hello(props) {
 
 function World(props) {
 	const [state, setState] = useState('点击我');
-	useFiber().onMounted.add(() => {
-		console.log('%c World onMounted', 'color:#0f0;');
+
+	useEffect(() => {
+		console.log('%c World Mounted', 'color:#0f0;');
 		return () => {
-			console.log('%c World onUnMounted', 'color:#0f0;');
+			console.log('%c World UnMounted', 'color:#0f0;');
 		};
-	});
-
-	// useEffect(() => {
-	// 	console.log('%c World Mounted', 'color:#0f0;');
-	// 	return () => {
-	// 		console.log('%c World UnMounted', 'color:#0f0;');
-	// 	};
-	// }, []);
-
-	// useEffect(() => {
-	// 	console.log('%c World Update', 'color:#990;');
-	// });
+	}, []);
 
 	return <div>{state}</div>;
 }
@@ -75,16 +60,9 @@ function App(props) {
 	const [state, setState] = useState(true);
 	const [state2, setState2] = useState(true);
 
-	// useEffect(() => {
-	// 	console.log('%c App Mounted', 'color:#0f0;');
-	// 	return () => {
-	// 		console.log('%c App UnMounted', 'color:#0f0;');
-	// 	};
-	// }, []);
-
-	// useEffect(() => {
-	// 	console.log('%c App Update', 'color:#990;');
-	// });
+	useEffect(() => {
+		console.log('%c App Update', 'color:#990;');
+	});
 
 	return (
 		<Fragment1 key="99">
@@ -110,7 +88,7 @@ function App(props) {
 
 			{!state ? (
 				<Fragment1 key="77" __target={document.body}>
-					<div>Portal-body</div>
+					<div>Portal-999999999999999</div>
 				</Fragment1>
 			) : (
 				'Portal inner'
