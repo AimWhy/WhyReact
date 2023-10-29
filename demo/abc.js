@@ -14,7 +14,6 @@ const MarkRef = 0b001000;
 const MarkReusableFiber = 0b010000;
 
 const checkTrue = () => true;
-
 const makeMap = (list) => {
 	const memo = new Set(list);
 	return (val) => memo.has(val);
@@ -74,7 +73,6 @@ const HTML_TAGS =
 	'html,body,base,head,link,meta,style,title,address,article,aside,footer,header,hgroup,h1,h2,h3,h4,h5,h6,nav,section,div,dd,dl,dt,figcaption,figure,picture,hr,img,li,main,ol,p,pre,ul,a,b,abbr,bdi,bdo,br,cite,code,data,dfn,em,i,kbd,mark,q,rp,rt,ruby,s,samp,small,span,strong,sub,sup,time,u,var,wbr,area,audio,map,track,video,embed,object,param,source,canvas,script,noscript,del,ins,caption,col,colgroup,table,thead,tbody,td,th,tr,button,datalist,fieldset,form,input,label,legend,meter,optgroup,option,output,progress,select,textarea,details,dialog,menu,summary,template,blockquote,iframe,tfoot'.split(
 		','
 	);
-
 const isHTMLTag = makeMap(HTML_TAGS);
 
 const uniqueSet = new Set();
@@ -208,18 +206,13 @@ function dispatchEvent(container, eventType, e) {
 		return console.warn('事件不存在target', e);
 	}
 
-	// 1. 收集沿途的事件
 	const { bubble, capture } = collectPaths(targetElement, container, eventType);
+	const syntheticEvent = createSyntheticEvent(e);
 
-	// 2. 构造合成事件
-	const se = createSyntheticEvent(e);
+	triggerEventFlow(capture, syntheticEvent);
 
-	// 3. 遍历capture
-	triggerEventFlow(capture, se);
-
-	if (!se.__stopPropagation) {
-		// 4. 遍历bubble
-		triggerEventFlow(bubble, se);
+	if (!syntheticEvent.__stopPropagation) {
+		triggerEventFlow(bubble, syntheticEvent);
 	}
 }
 
@@ -252,13 +245,11 @@ const onCompositionEnd = (e) => {
 		target.dispatchEvent(new Event('input'));
 	}
 };
-
 const onInputFixed = (e) => {
 	if (!e.target.composing) {
 		e.target[elementPropsKey]['onInput'](e);
 	}
 };
-
 const eventCallback = (e) => {
 	const pKey = `on${e.type[0].toUpperCase()}${e.type.slice(1)}`;
 	if (e.target[elementPropsKey][pKey]) {
@@ -398,6 +389,18 @@ export const useReducer = (reducer, initialState) => {
 	return [hookQueue[innerIndex].state, hookQueue[innerIndex].dispatch];
 };
 
+export const useRef = (initialValue) => {
+	const fiber = workInProgress;
+	const innerIndex = fiber.StateIndex++;
+	const { hookQueue } = fiber;
+
+	if (hookQueue.length <= innerIndex) {
+		hookQueue[innerIndex] = { current: initialValue };
+	}
+
+	return hookQueue[innerIndex];
+};
+
 export const useState = (initialState) => {
 	return useReducer((state, action) => {
 		return typeof action === 'function' ? action(state) : action;
@@ -504,7 +507,7 @@ export const useFiber = () => {
 };
 
 const dispatchHook = (fiber, hookName, async) => {
-	// console.log(`dispatch Component-${hookName}`, fiber.nodeKey);
+	console.log(`dispatch Component-${hookName}`, fiber.nodeKey);
 
 	if (fiber[hookName].size === 0) {
 		return;
@@ -808,8 +811,17 @@ function finishedWork(fiber) {
 		const newRef = newProps.ref;
 
 		fiber.ref = (instance) => {
-			oldRef && oldRef(null);
-			newRef && newRef(instance);
+			if (typeof oldRef === 'function') {
+				oldRef(null);
+			} else if (oldRef && 'current' in oldRef) {
+				oldRef.current = null;
+			}
+
+			if (typeof newRef === 'function') {
+				newRef(instance);
+			} else if (newRef && 'current' in newRef) {
+				newRef.current = instance;
+			}
 		};
 
 		fiber.flags |= MarkRef;
